@@ -1,49 +1,61 @@
-![](https://img.shields.io/github/commit-activity/t/subhamay-bhattacharyya-gha/github-action-template)&nbsp;![](https://img.shields.io/github/last-commit/subhamay-bhattacharyya-gha/github-action-template)&nbsp;![](https://img.shields.io/github/release-date/subhamay-bhattacharyya-gha/github-action-template)&nbsp;![](https://img.shields.io/github/repo-size/subhamay-bhattacharyya-gha/github-action-template)&nbsp;![](https://img.shields.io/github/directory-file-count/subhamay-bhattacharyya-gha/github-action-template)&nbsp;![](https://img.shields.io/github/issues/subhamay-bhattacharyya-gha/github-action-template)&nbsp;![](https://img.shields.io/github/languages/top/subhamay-bhattacharyya-gha/github-action-template)&nbsp;![](https://img.shields.io/github/commit-activity/m/subhamay-bhattacharyya-gha/github-action-template)&nbsp;![](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/bsubhamay/06e35985280456b113298ed56c626e73/raw/github-action-template.json?)
+![](https://img.shields.io/github/commit-activity/t/subhamay-bhattacharyya-gha/cfn-create-stack-action)&nbsp;![](https://img.shields.io/github/last-commit/subhamay-bhattacharyya-gha/cfn-create-stack-action)&nbsp;![](https://img.shields.io/github/release-date/subhamay-bhattacharyya-gha/cfn-create-stack-action)&nbsp;![](https://img.shields.io/github/repo-size/subhamay-bhattacharyya-gha/cfn-create-stack-action)&nbsp;![](https://img.shields.io/github/directory-file-count/subhamay-bhattacharyya-gha/cfn-create-stack-action)&nbsp;![](https://img.shields.io/github/issues/subhamay-bhattacharyya-gha/cfn-create-stack-action)&nbsp;![](https://img.shields.io/github/languages/top/subhamay-bhattacharyya-gha/cfn-create-stack-action)&nbsp;![](https://img.shields.io/github/commit-activity/m/subhamay-bhattacharyya-gha/cfn-create-stack-action)&nbsp;![](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/bsubhamay/8e5f94c5d25e83cd2d4e189772a67a07/raw/cfn-create-stack-action.json?)
 
-# GitHub Template Repository - Composite Action
+# 🚀 CloudFormation Create GitHub Action
 
-A Template GitHub Repository to be used to create a composite action.
+This GitHub Composite Action automates the creation of an AWS CloudFormation stack and monitors its status in real-time.
 
-# Action Name
+## 📋 Description
 
-**Action Description**
+Creates a CloudFormation Stack in the target AWS environment and waits for its completion status. Ideal for CI/CD workflows triggered via GitHub Actions.
 
-This GitHub Action provides a reusable composite workflow that sets up Python and interacts with the GitHub API to post a comment on an issue, including a link to a created branch.
+## ✅ Features
 
----
+- Assumes an IAM role via OIDC
+- Generates CloudFormation parameters dynamically
+- Monitors stack creation live with event logging
+- Supports timeout control
 
-## Inputs
+## 🧰 Inputs
 
-| Name           | Description         | Required | Default        |
-|----------------|---------------------|----------|----------------|
-| `input-1`      | Input description.  | No       | `default-value`|
-| `input-2`      | Input description.  | No       | `default-value`|
-| `input-3`      | Input description.  | No       | `default-value`|
-| `github-token` | GitHub token. Used for API authentication. | Yes | — |
+| Name                    | Description                                         | Type     | Required | Default                                                             |
+|-------------------------|-----------------------------------------------------|----------|----------|---------------------------------------------------------------------|
+| `aws-role-arn`          | ARN of the IAM role to assume                       | `string` | ✅       | `arn:aws:iam::637423502513:role/subhamay-github-oidc-role`          |
+| `aws-region`            | AWS region for deployment                           | `string` | ✅       | `us-east-1`                                                         |
+| `cfn-params-file`       | Path to the CloudFormation parameters JSON file     | `string` | ✅       | `./cfn/params/cfn-parameters.json`                                  |
+| `ci-build`              | Indicates if this is a CI pipeline run              | `boolean`| ✅       | `true`                                                              |
+| `environment`           | Target environment (e.g., `dev`, `test`, `prod`)    | `string` | ✅       | `devl`                                                              |
+| `monitor-timeout-seconds` | Timeout in seconds for stack creation monitoring | `number` | ❌       | `600` (10 minutes)                                                  |
 
----
+## 📦 Outputs
 
-## Example Usage
+| Name         | Description                          |
+|--------------|--------------------------------------|
+| `stack-name` | Name of the created CloudFormation stack |
+
+## 🛠 Usage
 
 ```yaml
-name: Example Workflow
+name: Deploy CloudFormation Stack
 
 on:
-  issues:
-    types: [opened]
+  push:
+    branches: [ main ]
 
 jobs:
-  example:
+  deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Run Custom Action
-        uses: your-org/your-action-repo@v1
+      - name: Use CloudFormation Create Action
+        uses: your-org/cloudformation-create-action@v1
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          input-1: your-value
-          input-2: another-value
-          input-3: something-else
+          aws-role-arn: arn:aws:iam::637423502513:role/subhamay-github-oidc-role
+          aws-region: us-east-1
+          cfn-params-file: ./cfn/params/cfn-parameters.json
+          ci-build: true
+          environment: devl
+          monitor-timeout-seconds: 600
 ```
+
+## License
+
+MIT

@@ -1,44 +1,139 @@
-name: 'Action Name'
-description: 'Action Description'
+name: CloudFormation Create
+run-name: CloudFormation Create Stack in ${{ github.ref_name }} by ${{ github.actor }}
+description: Create a CloudFormation Stack and monitor its status
 
 inputs:
-  input-1:
-    description: Input description.
-    required: false
-    default: default-value
-  input-2:
-    description: Input description.
-    required: false
-    default: default-value
-  input-3:
-    description: Input description.
-    required: false
-    default: default-value
-  github-token:
-    description: 'GitHub token'
+  aws-role-arn:
+    description: 'ARN of the role to assume.'
+    type: string
     required: true
+    default: arn:aws:iam::637423502513:role/subhamay-github-oidc-role
+
+  aws-region:
+    description: 'AWS region for deployment.'
+    type: string
+    required: true
+    default: us-east-1
+
+  cfn-params-file:
+    description: 'Path to the CloudFormation parameters file.'
+    type: string
+    required: true
+    default: './cfn/params/cfn-parameters.json'
+
+  ci-build:
+    description: 'Set to true if triggered from CI pipeline.'
+    type: boolean
+    required: true
+    default: true
+
+  environment:
+    description: 'Target environment (e.g., dev, test, prod).'
+    type: string
+    required: true
+    default: devl
+
+  monitor-timeout-seconds:
+    description: 'Max time (in seconds) to wait for stack creation. Use 0 for unlimited.'
+    type: number
+    required: false
+    default: 600  # 10 minutes
+
+outputs:
+  stack-name:
+    description: 'Name of the created stack.'
+    value: ${{ steps.gen-params.outputs.stack-name }}
 
 runs:
   using: 'composite'
   steps:
-    - name: Set up Python
-      uses: actions/setup-python@v4
+    - name: Checkout Code
+      uses: actions/checkout@v4
       with:
-        python-version: 3.x
+        fetch-depth: 0
 
-    - name: Sample step to call GitHub API
+    - name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v4.0.2
+      with:
+        role-to-assume: ${{ inputs.aws-role-arn }}
+        aws-region: ${{ inputs.aws-region }}
+        role-session-name: github-aws-cloudformation-oidc
+
+    - name: Generate CloudFormation Parameters
+      id: gen-params
+      uses: subhamay-bhattacharyya-gha/cfn-parameters-action@feature/SB-0002-fix-cfn-params
+      with:
+        config-file: ${{ inputs.cfn-params-file }}
+        environment: ${{ inputs.environment }}
+        ci-build: ${{ inputs.ci-build }}
+
+    - name: Create CloudFormation Stack and Monitor Progress
       shell: bash
-      env:
-        GITHUB_TOKEN: ${{ inputs.github-token }}
       run: |
-        ISSUE_NUMBER="${{ github.event.issue.number }}"
-        REPO="${{ github.repository }}"
-        OWNER=$(echo $REPO | cut -d'/' -f1)
-        BRANCH_NAME="${{ steps.create-branch.outputs.branch-name }}"
-        COMMENT_BODY="Branch [$BRANCH_NAME](https://github.com/$OWNER/$REPO/tree/$BRANCH_NAME) created 🚀"
+        set -euo pipefail
 
-        curl -s -X POST \
-          -H "Authorization: token $GITHUB_TOKEN" \
-          -H "Content-Type: application/json" \
-          -d "{\"body\": \"$COMMENT_BODY\"}" \
-          https://api.github.com/repos/$REPO/issues/$ISSUE_NUMBER/comments
+        STACK_NAME="${{ steps.gen-params.outputs.stack-name }}"
+        TEMPLATE_PATH="${{ github.workspace }}${{ steps.gen-params.outputs.template-path }}"
+        REGION="${{ inputs.aws-region }}"
+        PARAMS="${{ steps.gen-params.outputs.parameters }}"
+        TIMEOUT=${{ inputs.monitor-timeout-seconds }}
+        START_TIME=$(date +%s)
+
+        echo "🚀 Initiating stack creation: $STACK_NAME in $REGION"
+        aws cloudformation create-stack \
+          --stack-name "$STACK_NAME" \
+          --parameters "$PARAMS" \
+          --template-body "file://$TEMPLATE_PATH" \
+          --region "$REGION" \
+          --capabilities CAPABILITY_NAMED_IAM
+
+        if [ $? -ne 0 ]; then
+          echo "❌ Failed to initiate stack creation. Exiting."
+          exit 1
+        fi
+
+        echo "📡 Monitoring stack creation..."
+
+        declare -A SEEN_EVENTS
+
+        while true; do
+          EVENTS=$(aws cloudformation describe-stack-events \
+            --stack-name "$STACK_NAME" \
+            --region "$REGION" \
+            --output json)
+
+          echo "$EVENTS" | jq -c '.StackEvents[]' | while read -r EVENT; do
+            EVENT_ID=$(echo "$EVENT" | jq -r '.EventId')
+            if [[ -z "${SEEN_EVENTS[$EVENT_ID]+_}" ]]; then
+              SEEN_EVENTS[$EVENT_ID]=1
+              echo "$EVENT" | jq -r '"\(.Timestamp) \(.ResourceStatus) \(.LogicalResourceId) \(.ResourceType) \(.ResourceStatusReason // "")"'
+            fi
+          done
+
+          STATUS=$(aws cloudformation describe-stacks \
+            --stack-name "$STACK_NAME" \
+            --region "$REGION" \
+            --query "Stacks[0].StackStatus" \
+            --output text)
+
+          if [[ "$STATUS" == "CREATE_COMPLETE" ]]; then
+            echo "✅ Stack creation completed successfully!"
+            break
+          elif [[ "$STATUS" == "ROLLBACK_COMPLETE" || "$STATUS" == "CREATE_FAILED" ]]; then
+            echo "❌ Stack creation failed with status: $STATUS"
+            exit 1
+          fi
+
+          if [[ $TIMEOUT -gt 0 ]]; then
+            CURRENT_TIME=$(date +%s)
+            ELAPSED=$((CURRENT_TIME - START_TIME))
+            if [[ $ELAPSED -ge $TIMEOUT ]]; then
+              echo "⏱️ Timeout reached after $ELAPSED seconds. Exiting..."
+              exit 1
+            fi
+          fi
+
+          sleep 5
+        done
+
+        echo "stack-name=$STACK_NAME" >> $GITHUB_OUTPUT
