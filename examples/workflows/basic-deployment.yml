@@ -1,0 +1,44 @@
+# Basic CloudFormation Deployment Workflow
+# This workflow demonstrates the simplest usage of the CloudFormation deployment action
+# 
+# Features demonstrated:
+# - Simple stack deployment without parameters
+# - Basic AWS credential configuration
+# - Deployment triggered by infrastructure changes
+
+name: Basic Infrastructure Deployment
+
+on:
+  push:
+    branches: [main]
+    paths: ['infrastructure/**']
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Deploy CloudFormation Stack
+    runs-on: ubuntu-latest
+    environment: production
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Deploy CloudFormation Stack
+        uses: your-org/cloudformation-deployment-action@v1
+        with:
+          stack-name: my-basic-stack
+          stack-path: infrastructure/basic-stack.yaml
+
+      - name: Display Deployment Summary
+        run: |
+          echo "✅ Basic stack deployment completed successfully!"
+          echo "Stack Name: my-basic-stack"
+          echo "Template: infrastructure/basic-stack.yaml"
+          echo "Region: ${{ vars.AWS_REGION }}"
