@@ -322,6 +322,12 @@ runs:
           local events
           local aws_exit_code
           
+          # Check if stack exists first to avoid errors
+          if ! aws cloudformation describe-stacks --stack-name "$stack_name" &>/dev/null; then
+            echo "⚠️  Stack '$stack_name' not found yet. Waiting for creation to begin..."
+            return 1
+          fi
+          
           if [ -n "$last_event_time" ]; then
             # Get events newer than last event time
             events=$(aws cloudformation describe-stack-events --stack-name "$stack_name" --query "StackEvents[?Timestamp>\`$last_event_time\`]" --output table 2>&1)
@@ -359,12 +365,20 @@ runs:
         LAST_EVENT_TIME=""
         MONITORING_INTERVAL=10
         MONITORING_ERRORS=0
-        MAX_MONITORING_ERRORS=3
+        MAX_MONITORING_ERRORS=5  # Increased tolerance for errors
+        INITIAL_DELAY=5  # Add initial delay to allow stack creation to begin
+        
+        # Initial delay to allow stack creation to begin
+        echo "Waiting $INITIAL_DELAY seconds for deployment to initialize..."
+        sleep $INITIAL_DELAY
         
         while kill -0 $DEPLOY_PID 2>/dev/null; do
           # Display new stack events with error handling
+          # Wrap in try-catch to prevent script failure on stack not found
+          set +e  # Don't exit on error
           NEW_LAST_EVENT_TIME=$(display_stack_events "$DEPLOYMENT_STACK_NAME" "$LAST_EVENT_TIME")
           EVENTS_EXIT_CODE=$?
+          set -e  # Resume exit on error
           
           if [ $EVENTS_EXIT_CODE -eq 0 ]; then
             # Reset error counter on successful event retrieval
@@ -376,6 +390,7 @@ runs:
             # Increment error counter
             MONITORING_ERRORS=$((MONITORING_ERRORS + 1))
             echo "⚠️  Event monitoring error $MONITORING_ERRORS/$MAX_MONITORING_ERRORS"
+            echo "This is normal if the stack is still being created. Continuing to monitor..."
             
             # If too many monitoring errors, continue deployment but stop event monitoring
             if [ $MONITORING_ERRORS -ge $MAX_MONITORING_ERRORS ]; then
@@ -391,10 +406,21 @@ runs:
         
         # Wait for deployment process to complete and get exit code
         echo "Waiting for deployment to complete..."
+        
+        # Use set +e to prevent script failure if the process has already exited
+        set +e
         wait $DEPLOY_PID
         DEPLOY_EXIT_CODE=$?
+        set -e
         
-        echo "Deployment process completed with exit code: $DEPLOY_EXIT_CODE"
+        # Check if the deployment log contains errors if the process failed
+        if [ $DEPLOY_EXIT_CODE -ne 0 ] && [ -f "$DEPLOY_LOG_FILE" ]; then
+          echo "⚠️ Deployment process exited with code: $DEPLOY_EXIT_CODE"
+          echo "Checking deployment log for errors..."
+          cat "$DEPLOY_LOG_FILE"
+        else
+          echo "Deployment process completed with exit code: $DEPLOY_EXIT_CODE"
+        fi
         
         # Save deployment result for next step
         echo "$DEPLOY_EXIT_CODE" > /tmp/deploy-exit-code
