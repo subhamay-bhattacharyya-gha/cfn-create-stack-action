@@ -45,7 +45,7 @@ Please ensure the template file exists and the path is correct.
 - File is in a different branch or directory
 
 **Solutions:**
-1. **Verify file path**: Check that the path in `stack-path` is correct relative to repository root
+1. **Verify file path**: Check that the path in `template-path` is correct relative to repository root
 2. **Check file existence**: Ensure the template file is committed to the repository
 3. **Case sensitivity**: Verify file name case matches exactly (especially on Linux runners)
 4. **Branch consistency**: Ensure the template exists in the branch being deployed
@@ -53,10 +53,10 @@ Please ensure the template file exists and the path is correct.
 **Example Fix:**
 ```yaml
 # Wrong
-stack-path: Infrastructure/App.yaml
+template-path: Infrastructure/App.yaml
 
 # Correct
-stack-path: infrastructure/app.yaml
+template-path: infrastructure/app.yaml
 ```
 
 ### 2. Invalid JSON Parameters

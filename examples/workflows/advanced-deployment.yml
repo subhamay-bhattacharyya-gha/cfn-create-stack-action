@@ -120,7 +120,7 @@ jobs:
         uses: your-org/cloudformation-deployment-action@v1
         with:
           stack-name: myapp-iam-global
-          stack-path: infrastructure/iam-stack.yaml
+          template-path: infrastructure/iam-stack.yaml
           deployment-parameters: |
             {
               "Environment": "production",
@@ -132,7 +132,7 @@ jobs:
         uses: your-org/cloudformation-deployment-action@v1
         with:
           stack-name: myapp-dns-global
-          stack-path: infrastructure/route53-stack.yaml
+          template-path: infrastructure/route53-stack.yaml
           deployment-parameters: |
             {
               "DomainName": "${{ vars.DOMAIN_NAME }}",
@@ -165,7 +165,7 @@ jobs:
         uses: your-org/cloudformation-deployment-action@v1
         with:
           stack-name: myapp-vpc-${{ matrix.region }}
-          stack-path: infrastructure/vpc-stack.yaml
+          template-path: infrastructure/vpc-stack.yaml
           deployment-parameters: |
             {
               "Environment": "production",
@@ -179,7 +179,7 @@ jobs:
         uses: your-org/cloudformation-deployment-action@v1
         with:
           stack-name: myapp-security-${{ matrix.region }}
-          stack-path: infrastructure/security-stack.yaml
+          template-path: infrastructure/security-stack.yaml
           deployment-parameters: |
             {
               "Environment": "production",
@@ -192,7 +192,7 @@ jobs:
         uses: your-org/cloudformation-deployment-action@v1
         with:
           stack-name: myapp-database-${{ matrix.region }}
-          stack-path: infrastructure/database-stack.yaml
+          template-path: infrastructure/database-stack.yaml
           deployment-parameters: |
             [
               {"ParameterName": "Environment", "ParameterValue": "production"},
@@ -209,7 +209,7 @@ jobs:
         uses: your-org/cloudformation-deployment-action@v1
         with:
           stack-name: myapp-application-${{ matrix.region }}
-          stack-path: infrastructure/app-stack.yaml
+          template-path: infrastructure/app-stack.yaml
           deployment-parameters: |
             {
               "Environment": "production",

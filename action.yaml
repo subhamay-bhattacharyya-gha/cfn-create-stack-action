@@ -5,7 +5,7 @@ inputs:
   stack-name:
     description: 'Name of the CloudFormation stack to deploy'
     required: true
-  stack-path:
+  template-path:
     description: 'Path to the CloudFormation template file'
     required: true
   deployment-parameters:
@@ -67,7 +67,7 @@ runs:
       shell: bash
       env:
         DEPLOYMENT_STACK_NAME: ${{ inputs.stack-name }}
-        DEPLOYMENT_TEMPLATE_PATH: ${{ inputs.stack-path }}
+        DEPLOYMENT_TEMPLATE_PATH: ${{ inputs.template-path }}
         DEPLOYMENT_PARAMETERS: ${{ inputs.deployment-parameters }}
       run: |
         echo "=== Input Validation ==="
@@ -79,7 +79,7 @@ runs:
         fi
         
         if [ -z "$DEPLOYMENT_TEMPLATE_PATH" ] || [ "$DEPLOYMENT_TEMPLATE_PATH" = "null" ]; then
-          echo "❌ Error: stack-path is required but not provided"
+          echo "❌ Error: template-path is required but not provided"
           exit 1
         fi
         

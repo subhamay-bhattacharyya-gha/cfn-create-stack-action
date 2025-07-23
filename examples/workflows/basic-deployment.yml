@@ -34,7 +34,7 @@ jobs:
         uses: your-org/cloudformation-deployment-action@v1
         with:
           stack-name: my-basic-stack
-          stack-path: infrastructure/basic-stack.yaml
+          template-path: infrastructure/basic-stack.yaml
 
       - name: Display Deployment Summary
         run: |

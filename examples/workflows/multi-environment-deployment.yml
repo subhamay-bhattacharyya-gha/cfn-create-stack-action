@@ -85,7 +85,7 @@ jobs:
         uses: your-org/cloudformation-deployment-action@v1
         with:
           stack-name: myapp-${{ needs.determine-environment.outputs.environment }}
-          stack-path: infrastructure/app-stack.yaml
+          template-path: infrastructure/app-stack.yaml
           deployment-parameters: |
             {
               "Environment": "${{ needs.determine-environment.outputs.environment }}",
@@ -101,7 +101,7 @@ jobs:
         uses: your-org/cloudformation-deployment-action@v1
         with:
           stack-name: myapp-db-${{ needs.determine-environment.outputs.environment }}
-          stack-path: infrastructure/database-stack.yaml
+          template-path: infrastructure/database-stack.yaml
           deployment-parameters: |
             [
               {"ParameterName": "Environment", "ParameterValue": "${{ needs.determine-environment.outputs.environment }}"},

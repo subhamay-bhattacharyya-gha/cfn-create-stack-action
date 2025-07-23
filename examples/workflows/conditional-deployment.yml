@@ -93,7 +93,7 @@ jobs:
         uses: your-org/cloudformation-deployment-action@v1
         with:
           stack-name: myapp-vpc-${{ github.ref_name }}
-          stack-path: infrastructure/vpc-stack.yaml
+          template-path: infrastructure/vpc-stack.yaml
           deployment-parameters: |
             {
               "Environment": "${{ github.ref_name }}",
@@ -123,7 +123,7 @@ jobs:
         uses: your-org/cloudformation-deployment-action@v1
         with:
           stack-name: myapp-database-${{ github.ref_name }}
-          stack-path: infrastructure/database-stack.yaml
+          template-path: infrastructure/database-stack.yaml
           deployment-parameters: |
             {
               "Environment": "${{ github.ref_name }}",
@@ -155,7 +155,7 @@ jobs:
         uses: your-org/cloudformation-deployment-action@v1
         with:
           stack-name: myapp-application-${{ github.ref_name }}
-          stack-path: infrastructure/app-stack.yaml
+          template-path: infrastructure/app-stack.yaml
           deployment-parameters: |
             {
               "Environment": "${{ github.ref_name }}",
@@ -196,7 +196,7 @@ jobs:
         uses: your-org/cloudformation-deployment-action@v1
         with:
           stack-name: ${{ steps.stack-name.outputs.stack_name }}
-          stack-path: infrastructure/dev-stack.yaml
+          template-path: infrastructure/dev-stack.yaml
           deployment-parameters: |
             {
               "Environment": "development",

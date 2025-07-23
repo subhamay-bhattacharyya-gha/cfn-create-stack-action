@@ -21,7 +21,7 @@ A reusable GitHub Action that automates the deployment of AWS CloudFormation sta
 | Name | Description | Required | Default |
 |------|-------------|----------|---------|
 | `stack-name` | Name of the CloudFormation stack to deploy | Yes | — |
-| `stack-path` | Path to the CloudFormation template file (relative to repository root) | Yes | — |
+| `template-path` | Path to the CloudFormation template file (relative to repository root) | Yes | — |
 | `deployment-parameters` | CloudFormation parameters as JSON string (supports multiple formats) | No | `null` |
 
 ### Parameter Formats
@@ -99,7 +99,7 @@ jobs:
         uses: your-org/cloudformation-deployment-action@v1
         with:
           stack-name: my-application-stack
-          stack-path: infrastructure/app-stack.yaml
+          template-path: infrastructure/app-stack.yaml
 ```
 
 ### With Simple Parameters
@@ -109,7 +109,7 @@ jobs:
         uses: your-org/cloudformation-deployment-action@v1
         with:
           stack-name: my-app-${{ github.ref_name }}
-          stack-path: infrastructure/app-stack.yaml
+          template-path: infrastructure/app-stack.yaml
           deployment-parameters: |
             {
               "Environment": "${{ github.ref_name }}",
@@ -125,7 +125,7 @@ jobs:
         uses: your-org/cloudformation-deployment-action@v1
         with:
           stack-name: my-database-stack
-          stack-path: infrastructure/database.yaml
+          template-path: infrastructure/database.yaml
           deployment-parameters: |
             [
               {"ParameterName": "DBInstanceClass", "ParameterValue": "db.t3.micro"},
@@ -166,7 +166,7 @@ jobs:
         uses: your-org/cloudformation-deployment-action@v1
         with:
           stack-name: myapp-${{ github.event.inputs.environment }}
-          stack-path: infrastructure/main.yaml
+          template-path: infrastructure/main.yaml
           deployment-parameters: |
             {
               "Environment": "${{ github.event.inputs.environment }}",
@@ -192,7 +192,7 @@ jobs:
         uses: your-org/cloudformation-deployment-action@v1
         with:
           stack-name: myapp-${{ github.ref_name }}
-          stack-path: infrastructure/app.yaml
+          template-path: infrastructure/app.yaml
           deployment-parameters: ${{ steps.params.outputs.parameters }}
 ```
 
