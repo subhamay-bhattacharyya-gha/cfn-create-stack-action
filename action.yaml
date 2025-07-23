@@ -285,13 +285,27 @@ runs:
         DEPLOY_PID_FILE="/tmp/cf_deploy_$.pid"
         DEPLOY_LOG_FILE="/tmp/cf_deploy_$.log"
         
-        # Start deployment in background and capture PID
+        # Start deployment and capture output directly
         # Log deployment command without exposing parameter values for security
         DEPLOY_CMD_SAFE=$(echo "$DEPLOY_CMD" | sed 's/--parameter-overrides [^[:space:]]*/--parameter-overrides [HIDDEN_FOR_SECURITY]/')
         echo "Executing: $DEPLOY_CMD_SAFE"
-        eval "$DEPLOY_CMD" > "$DEPLOY_LOG_FILE" 2>&1 &
-        DEPLOY_PID=$!
-        echo $DEPLOY_PID > "$DEPLOY_PID_FILE"
+        
+        # Execute the command directly instead of in background
+        # This ensures we get the proper exit code and output
+        echo "Starting CloudFormation deployment..."
+        eval "$DEPLOY_CMD"
+        DEPLOY_EXIT_CODE=$?
+        
+        # Save the exit code for the next step
+        echo "$DEPLOY_EXIT_CODE" > /tmp/deploy-exit-code
+        
+        # If deployment failed, show error details
+        if [ $DEPLOY_EXIT_CODE -ne 0 ]; then
+          echo "❌ CloudFormation deployment failed with exit code: $DEPLOY_EXIT_CODE"
+          exit $DEPLOY_EXIT_CODE
+        fi
+        
+        echo "✅ CloudFormation deployment completed successfully!"
         
         echo "Deployment started (PID: $DEPLOY_PID)"
         echo "Monitoring stack events..."
@@ -302,128 +316,56 @@ runs:
         echo "$DEPLOY_PID_FILE" > /tmp/deploy-pid-file
         echo "$DEPLOY_LOG_FILE" > /tmp/deploy-log-file
 
-    - name: Monitor Deployment Progress
+    - name: Display Stack Information
       shell: bash
       run: |
-        echo "=== Deployment Monitoring ==="
+        echo "=== Stack Information ==="
         
-        # Load deployment info from previous step
+        # Load deployment info
         DEPLOYMENT_STACK_NAME=$(cat /tmp/stack-name)
-        DEPLOY_PID=$(cat /tmp/deploy-pid)
-        DEPLOY_PID_FILE=$(cat /tmp/deploy-pid-file)
-        DEPLOY_LOG_FILE=$(cat /tmp/deploy-log-file)
+        DEPLOY_EXIT_CODE=$(cat /tmp/deploy-exit-code)
         
-        # Function to display stack events with error handling
-        display_stack_events() {
-          local stack_name="$1"
-          local last_event_time="$2"
-          
-          # Get stack events since last check with error handling
-          local events
-          local aws_exit_code
-          
-          # Check if stack exists first to avoid errors
-          if ! aws cloudformation describe-stacks --stack-name "$stack_name" &>/dev/null; then
-            echo "⚠️  Stack '$stack_name' not found yet. Waiting for creation to begin..."
-            return 1
-          fi
-          
-          if [ -n "$last_event_time" ]; then
-            # Get events newer than last event time
-            events=$(aws cloudformation describe-stack-events --stack-name "$stack_name" --query "StackEvents[?Timestamp>\`$last_event_time\`]" --output table 2>&1)
-            aws_exit_code=$?
-          else
-            # Get recent events (last 10)
-            events=$(aws cloudformation describe-stack-events --stack-name "$stack_name" --query "StackEvents[:10]" --output table 2>&1)
-            aws_exit_code=$?
-          fi
-          
-          if [ $aws_exit_code -ne 0 ]; then
-            echo "⚠️  Warning: Failed to retrieve stack events (AWS CLI Exit Code: $aws_exit_code)"
-            echo "Event monitoring will continue, but some events may be missed."
-            return 1
-          fi
-          
-          if [ -n "$events" ] && [ "$events" != "" ] && [ "$events" != "None" ]; then
-            echo "$events"
-            echo ""
-          fi
-          
-          # Return the timestamp of the most recent event with error handling
-          local timestamp
-          timestamp=$(aws cloudformation describe-stack-events --stack-name "$stack_name" --query "StackEvents[0].Timestamp" --output text 2>&1)
-          local timestamp_exit_code=$?
-          
-          if [ $timestamp_exit_code -eq 0 ] && [ "$timestamp" != "None" ]; then
-            echo "$timestamp"
-          else
-            echo ""
-          fi
-        }
-        
-        # Monitor deployment progress with error handling
-        LAST_EVENT_TIME=""
-        MONITORING_INTERVAL=10
-        MONITORING_ERRORS=0
-        MAX_MONITORING_ERRORS=5  # Increased tolerance for errors
-        INITIAL_DELAY=5  # Add initial delay to allow stack creation to begin
-        
-        # Initial delay to allow stack creation to begin
-        echo "Waiting $INITIAL_DELAY seconds for deployment to initialize..."
-        sleep $INITIAL_DELAY
-        
-        while kill -0 $DEPLOY_PID 2>/dev/null; do
-          # Display new stack events with error handling
-          # Wrap in try-catch to prevent script failure on stack not found
-          set +e  # Don't exit on error
-          NEW_LAST_EVENT_TIME=$(display_stack_events "$DEPLOYMENT_STACK_NAME" "$LAST_EVENT_TIME")
-          EVENTS_EXIT_CODE=$?
-          set -e  # Resume exit on error
-          
-          if [ $EVENTS_EXIT_CODE -eq 0 ]; then
-            # Reset error counter on successful event retrieval
-            MONITORING_ERRORS=0
-            if [ -n "$NEW_LAST_EVENT_TIME" ] && [ "$NEW_LAST_EVENT_TIME" != "None" ]; then
-              LAST_EVENT_TIME="$NEW_LAST_EVENT_TIME"
-            fi
-          else
-            # Increment error counter
-            MONITORING_ERRORS=$((MONITORING_ERRORS + 1))
-            echo "⚠️  Event monitoring error $MONITORING_ERRORS/$MAX_MONITORING_ERRORS"
-            echo "This is normal if the stack is still being created. Continuing to monitor..."
-            
-            # If too many monitoring errors, continue deployment but stop event monitoring
-            if [ $MONITORING_ERRORS -ge $MAX_MONITORING_ERRORS ]; then
-              echo "⚠️  Too many event monitoring errors. Continuing deployment without event monitoring."
-              echo "Deployment process is still running in background..."
-              break
-            fi
-          fi
-          
-          # Wait before next check
-          sleep $MONITORING_INTERVAL
-        done
-        
-        # Wait for deployment process to complete and get exit code
-        echo "Waiting for deployment to complete..."
-        
-        # Use set +e to prevent script failure if the process has already exited
-        set +e
-        wait $DEPLOY_PID
-        DEPLOY_EXIT_CODE=$?
-        set -e
-        
-        # Check if the deployment log contains errors if the process failed
-        if [ $DEPLOY_EXIT_CODE -ne 0 ] && [ -f "$DEPLOY_LOG_FILE" ]; then
-          echo "⚠️ Deployment process exited with code: $DEPLOY_EXIT_CODE"
-          echo "Checking deployment log for errors..."
-          cat "$DEPLOY_LOG_FILE"
-        else
-          echo "Deployment process completed with exit code: $DEPLOY_EXIT_CODE"
+        # If deployment failed, exit with the same code
+        if [ $DEPLOY_EXIT_CODE -ne 0 ]; then
+          echo "❌ CloudFormation deployment failed with exit code: $DEPLOY_EXIT_CODE"
+          exit $DEPLOY_EXIT_CODE
         fi
         
-        # Save deployment result for next step
-        echo "$DEPLOY_EXIT_CODE" > /tmp/deploy-exit-code
+        # Display stack events
+        echo "Recent Stack Events:"
+        aws cloudformation describe-stack-events \
+          --stack-name "$DEPLOYMENT_STACK_NAME" \
+          --query "StackEvents[:10]" \
+          --output table || echo "⚠️ Unable to retrieve stack events"
+        
+        # Display stack outputs
+        echo ""
+        echo "=== Stack Outputs ==="
+        aws cloudformation describe-stacks \
+          --stack-name "$DEPLOYMENT_STACK_NAME" \
+          --query "Stacks[0].Outputs" \
+          --output table || echo "⚠️ No outputs found for stack"
+        
+        # Display stack status
+        STACK_STATUS=$(aws cloudformation describe-stacks \
+          --stack-name "$DEPLOYMENT_STACK_NAME" \
+          --query "Stacks[0].StackStatus" \
+          --output text)
+        
+        echo ""
+        echo "Final Stack Status: $STACK_STATUS"
+        
+        # Verify successful status
+        case "$STACK_STATUS" in
+          "CREATE_COMPLETE"|"UPDATE_COMPLETE"|"UPDATE_COMPLETE_CLEANUP_IN_PROGRESS")
+            echo "✅ Stack deployment successful!"
+            ;;
+          *)
+            echo "⚠️ Stack is in state: $STACK_STATUS"
+            echo "This may indicate an issue with the deployment."
+            exit 1
+            ;;
+        esac
 
     - name: Display Final Results and Stack Information
       shell: bash
@@ -433,67 +375,65 @@ runs:
         DEPLOYMENT_TEMPLATE_PATH=$(cat /tmp/template-path)
         PARAMETER_OVERRIDES=$(cat /tmp/parameter-overrides)
         DEPLOY_EXIT_CODE=$(cat /tmp/deploy-exit-code)
-        DEPLOY_LOG_FILE=$(cat /tmp/deploy-log-file)
         
-        # Display final stack events for troubleshooting
+        # Display deployment summary
         echo ""
-        echo "=== Final Stack Events ==="
-        echo "Retrieving final stack events for troubleshooting..."
+        echo "=== Deployment Summary ==="
+        echo "📋 Deployment Configuration:"
+        echo "Stack Name: $DEPLOYMENT_STACK_NAME"
+        echo "Template File: $DEPLOYMENT_TEMPLATE_PATH"
+        echo "Template Size: $(wc -c < "$DEPLOYMENT_TEMPLATE_PATH") bytes"
         
-        FINAL_EVENTS=$(aws cloudformation describe-stack-events --stack-name "$DEPLOYMENT_STACK_NAME" --query "StackEvents[:20]" --output table 2>&1)
-        FINAL_EVENTS_EXIT_CODE=$?
-        
-        if [ $FINAL_EVENTS_EXIT_CODE -eq 0 ]; then
-          if [ -n "$FINAL_EVENTS" ] && [ "$FINAL_EVENTS" != "None" ]; then
-            echo "Recent Stack Events (Last 20):"
-            echo "$FINAL_EVENTS"
-          else
-            echo "No stack events available"
-          fi
+        if [ -n "$PARAMETER_OVERRIDES" ]; then
+          # Count parameters for security logging (avoid exposing sensitive values)
+          PARAM_COUNT=$(echo "$PARAMETER_OVERRIDES" | tr ' ' '\n' | wc -l | tr -d ' ')
+          PARAM_NAMES=$(echo "$PARAMETER_OVERRIDES" | sed 's/=.*//g' | tr '\n' ', ')
+          echo "Parameters: $PARAM_COUNT parameter(s) configured"
+          echo "Parameter Names: $PARAM_NAMES"
         else
-          echo "⚠️  Warning: Unable to retrieve final stack events (AWS CLI Exit Code: $FINAL_EVENTS_EXIT_CODE)"
-          echo "Event retrieval failed, but deployment status will still be checked."
+          echo "Parameters: None"
         fi
         
-        # Display deployment results with comprehensive error handling
+        # Get execution time
+        START_TIME=$(date +%s)
+        
+        # Verify stack status with error handling
         echo ""
-        echo "=== Deployment Results ==="
+        echo "📈 Execution Results:"
+        echo "Deployment Exit Code: $DEPLOY_EXIT_CODE"
         
-        # Determine final deployment status
-        FINAL_EXIT_CODE=$DEPLOY_EXIT_CODE
-        
+        # Determine final status
         if [ $DEPLOY_EXIT_CODE -eq 0 ]; then
-          echo "✅ CloudFormation deployment completed successfully!"
-          echo "Exit Code: $DEPLOY_EXIT_CODE"
-          echo ""
+          # Get stack status
+          STACK_STATUS=$(aws cloudformation describe-stacks --stack-name "$DEPLOYMENT_STACK_NAME" --query "Stacks[0].StackStatus" --output text 2>/dev/null || echo "UNKNOWN")
           
-          # Verify stack status with error handling
-          echo "Verifying final stack status..."
-          STACK_STATUS=$(aws cloudformation describe-stacks --stack-name "$DEPLOYMENT_STACK_NAME" --query "Stacks[0].StackStatus" --output text 2>&1)
-          STACK_STATUS_EXIT_CODE=$?
+          # Calculate execution time
+          END_TIME=$(date +%s)
+          EXECUTION_TIME=$((END_TIME - START_TIME))
+          echo "Final Stack Status: $STACK_STATUS"
+          echo "Execution Time: ${EXECUTION_TIME}s"
           
-          if [ $STACK_STATUS_EXIT_CODE -eq 0 ]; then
-            echo "Final Stack Status: $STACK_STATUS"
-            
-            # Check if stack is in a successful state
-            case "$STACK_STATUS" in
-              "CREATE_COMPLETE"|"UPDATE_COMPLETE"|"UPDATE_COMPLETE_CLEANUP_IN_PROGRESS")
-                echo "✅ Stack is in a successful state"
-                ;;
-              "CREATE_FAILED"|"UPDATE_FAILED"|"UPDATE_ROLLBACK_COMPLETE"|"ROLLBACK_COMPLETE")
-                echo "❌ Warning: Stack deployment reported success but stack is in failed state: $STACK_STATUS"
-                echo "This may indicate a race condition or AWS CLI reporting issue."
-                FINAL_EXIT_CODE=1
-                ;;
-              *)
-                echo "⚠️  Stack is in intermediate state: $STACK_STATUS"
-                echo "Deployment may still be in progress or require manual verification."
-                ;;
-            esac
-          else
-            echo "⚠️  Warning: Unable to verify final stack status (AWS CLI Exit Code: $STACK_STATUS_EXIT_CODE)"
-            echo "Stack status check failed, but deployment reported success."
-          fi
+          echo "✅ SUCCESS: CloudFormation deployment completed successfully!"
+          echo "Stack is in state: $STACK_STATUS"
+          
+          # Exit with success
+          exit 0
+        else
+          # Calculate execution time
+          END_TIME=$(date +%s)
+          EXECUTION_TIME=$((END_TIME - START_TIME))
+          echo "Final Action Exit Code: $DEPLOY_EXIT_CODE"
+          echo "Execution Time: ${EXECUTION_TIME}s"
+          
+          echo "💥 FAILURE: CloudFormation deployment failed!"
+          echo "❌ What went wrong:"
+          echo "• Deployment process exited with code $DEPLOY_EXIT_CODE"
+          echo "• Check the error analysis and troubleshooting guidance above"
+          echo "• Review stack events for specific failure details"
+          
+          # Exit with the same error code
+          exit $DEPLOY_EXIT_CODE
+        fi
           
           # Enhanced stack outputs retrieval and display
           echo ""
