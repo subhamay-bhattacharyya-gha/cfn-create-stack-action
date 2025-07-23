@@ -306,15 +306,6 @@ runs:
         fi
         
         echo "✅ CloudFormation deployment completed successfully!"
-        
-        echo "Deployment started (PID: $DEPLOY_PID)"
-        echo "Monitoring stack events..."
-        echo ""
-        
-        # Save deployment info for monitoring step
-        echo "$DEPLOY_PID" > /tmp/deploy-pid
-        echo "$DEPLOY_PID_FILE" > /tmp/deploy-pid-file
-        echo "$DEPLOY_LOG_FILE" > /tmp/deploy-log-file
 
     - name: Display Stack Information
       shell: bash
@@ -433,26 +424,7 @@ runs:
           
           # Exit with the same error code
           exit $DEPLOY_EXIT_CODE
-        fi
-          
-          # Enhanced stack outputs retrieval and display
-          echo ""
-          echo "=== Stack Outputs ==="
-          echo "Retrieving stack outputs..."
-          
-          # Get stack outputs with detailed formatting
-          STACK_OUTPUTS=$(aws cloudformation describe-stacks --stack-name "$DEPLOYMENT_STACK_NAME" --query "Stacks[0].Outputs" --output table 2>&1)
-          OUTPUTS_EXIT_CODE=$?
-          
-          if [ $OUTPUTS_EXIT_CODE -eq 0 ]; then
-            if [ -n "$STACK_OUTPUTS" ] && [ "$STACK_OUTPUTS" != "None" ] && [ "$STACK_OUTPUTS" != "null" ]; then
-              echo "Stack Outputs:"
-              echo "$STACK_OUTPUTS"
-              echo ""
-              
-              # Also display outputs in a more readable format
-              echo "Stack Outputs (Key-Value Format):"
-              aws cloudformation describe-stacks --stack-name "$DEPLOYMENT_STACK_NAME" --query "Stacks[0].Outputs[*].[OutputKey,OutputValue,Description]" --output text 2>/dev/null | while IFS=$'\t' read -r key value description; do
+        fi$'\t' read -r key value description; do
                 if [ -n "$key" ]; then
                   echo "  $key: $value"
                   if [ -n "$description" ] && [ "$description" != "None" ]; then
