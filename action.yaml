@@ -281,11 +281,6 @@ runs:
         fi
         echo ""
         
-        # Create a temporary file to track deployment process
-        DEPLOY_PID_FILE="/tmp/cf_deploy_$.pid"
-        DEPLOY_LOG_FILE="/tmp/cf_deploy_$.log"
-        
-        # Start deployment and capture output directly
         # Log deployment command without exposing parameter values for security
         DEPLOY_CMD_SAFE=$(echo "$DEPLOY_CMD" | sed 's/--parameter-overrides [^[:space:]]*/--parameter-overrides [HIDDEN_FOR_SECURITY]/')
         echo "Executing: $DEPLOY_CMD_SAFE"
@@ -322,20 +317,27 @@ runs:
           exit $DEPLOY_EXIT_CODE
         fi
         
-        # Display stack events
+        # Display stack events with only essential attributes for better readability
         echo "Recent Stack Events:"
         aws cloudformation describe-stack-events \
           --stack-name "$DEPLOYMENT_STACK_NAME" \
-          --query "StackEvents[:10]" \
+          --query "StackEvents[:10].[Timestamp,LogicalResourceId,ResourceType,ResourceStatus,ResourceStatusReason]" \
           --output table || echo "⚠️ Unable to retrieve stack events"
         
-        # Display stack outputs
+        # Display stack outputs in a clean, readable format
         echo ""
         echo "=== Stack Outputs ==="
-        aws cloudformation describe-stacks \
+        STACK_OUTPUTS=$(aws cloudformation describe-stacks \
           --stack-name "$DEPLOYMENT_STACK_NAME" \
           --query "Stacks[0].Outputs" \
-          --output table || echo "⚠️ No outputs found for stack"
+          --output json 2>/dev/null)
+          
+        if [ $? -eq 0 ] && [ "$STACK_OUTPUTS" != "null" ] && [ "$STACK_OUTPUTS" != "[]" ]; then
+          # Format outputs in a clean, readable way
+          echo "$STACK_OUTPUTS" | jq -r '.[] | "• \(.OutputKey): \(.OutputValue)\(if .Description then "\n  Description: \(.Description)" else "" end)"'
+        else
+          echo "⚠️ No outputs found for stack"
+        fi
         
         # Display stack status
         STACK_STATUS=$(aws cloudformation describe-stacks \
@@ -424,300 +426,4 @@ runs:
           
           # Exit with the same error code
           exit $DEPLOY_EXIT_CODE
-        fi$'\t' read -r key value description; do
-                if [ -n "$key" ]; then
-                  echo "  $key: $value"
-                  if [ -n "$description" ] && [ "$description" != "None" ]; then
-                    echo "    Description: $description"
-                  fi
-                fi
-              done
-            else
-              echo "Stack Outputs: None defined"
-              echo "This stack does not export any outputs."
-            fi
-          else
-            echo "⚠️  Warning: Unable to retrieve stack outputs (AWS CLI Exit Code: $OUTPUTS_EXIT_CODE)"
-            echo "Output retrieval failed, but deployment was successful."
-          fi
-          
-        else
-          echo "❌ CloudFormation deployment failed!"
-          echo "Exit Code: $DEPLOY_EXIT_CODE"
-          echo ""
-          
-          # Display deployment log for troubleshooting
-          if [ -f "$DEPLOY_LOG_FILE" ] && [ -s "$DEPLOY_LOG_FILE" ]; then
-            echo "=== Deployment Error Output ==="
-            echo "----------------------------------------"
-            cat "$DEPLOY_LOG_FILE"
-            echo "----------------------------------------"
-            echo ""
-          else
-            echo "⚠️  No deployment log available for troubleshooting"
-          fi
-          
-          # Enhanced final stack events display for failed deployments
-          echo "=== Final Stack Events (Failure Analysis) ==="
-          echo "Retrieving recent stack events to identify failure cause..."
-          
-          FAILURE_EVENTS=$(aws cloudformation describe-stack-events --stack-name "$DEPLOYMENT_STACK_NAME" --query "StackEvents[:30]" --output table 2>&1)
-          FAILURE_EVENTS_EXIT_CODE=$?
-          
-          if [ $FAILURE_EVENTS_EXIT_CODE -eq 0 ]; then
-            if [ -n "$FAILURE_EVENTS" ] && [ "$FAILURE_EVENTS" != "None" ]; then
-              echo "Recent Stack Events (Last 30 for failure analysis):"
-              echo "$FAILURE_EVENTS"
-              echo ""
-              
-              # Extract failed resources for specific troubleshooting
-              echo "=== Failed Resources Analysis ==="
-              FAILED_RESOURCES=$(aws cloudformation describe-stack-events --stack-name "$DEPLOYMENT_STACK_NAME" --query "StackEvents[?ResourceStatus=='CREATE_FAILED' || ResourceStatus=='UPDATE_FAILED' || ResourceStatus=='DELETE_FAILED'].[LogicalResourceId,ResourceType,ResourceStatus,ResourceStatusReason]" --output table 2>/dev/null)
-              
-              if [ -n "$FAILED_RESOURCES" ] && [ "$FAILED_RESOURCES" != "None" ]; then
-                echo "Resources that failed during deployment:"
-                echo "$FAILED_RESOURCES"
-              else
-                echo "No specific resource failures found in recent events."
-              fi
-            else
-              echo "No stack events available for failure analysis"
-            fi
-          else
-            echo "⚠️  Warning: Unable to retrieve stack events for failure analysis (AWS CLI Exit Code: $FAILURE_EVENTS_EXIT_CODE)"
-          fi
-          
-          # Try to get stack status for failed deployment
-          echo ""
-          echo "=== Stack Status Analysis ==="
-          echo "Checking stack status after failure..."
-          STACK_STATUS=$(aws cloudformation describe-stacks --stack-name "$DEPLOYMENT_STACK_NAME" --query "Stacks[0].StackStatus" --output text 2>&1)
-          STACK_STATUS_EXIT_CODE=$?
-          
-          if [ $STACK_STATUS_EXIT_CODE -eq 0 ]; then
-            echo "Final Stack Status: $STACK_STATUS"
-            
-            # Get stack status reason if available
-            STACK_STATUS_REASON=$(aws cloudformation describe-stacks --stack-name "$DEPLOYMENT_STACK_NAME" --query "Stacks[0].StackStatusReason" --output text 2>/dev/null)
-            if [ -n "$STACK_STATUS_REASON" ] && [ "$STACK_STATUS_REASON" != "None" ]; then
-              echo "Stack Status Reason: $STACK_STATUS_REASON"
-            fi
-            
-            # Provide specific guidance based on failure status
-            echo ""
-            echo "=== Troubleshooting Guidance ==="
-            case "$STACK_STATUS" in
-              "CREATE_FAILED")
-                echo "💡 Stack creation failed - Common causes and solutions:"
-                echo "   • Check the failed resources analysis above for specific resource errors"
-                echo "   • Verify IAM permissions for all resources in the template"
-                echo "   • Ensure all required parameters are provided correctly"
-                echo "   • Check resource limits and quotas in your AWS account"
-                echo "   • Validate resource names don't conflict with existing resources"
-                echo ""
-                echo "🔧 Next steps:"
-                echo "   • Review the stack events above to identify the first failure"
-                echo "   • Fix the identified issues in your template or parameters"
-                echo "   • Delete the failed stack before retrying: aws cloudformation delete-stack --stack-name $DEPLOYMENT_STACK_NAME"
-                ;;
-              "UPDATE_FAILED"|"UPDATE_ROLLBACK_COMPLETE")
-                echo "💡 Stack update failed - Common causes and solutions:"
-                echo "   • Check the failed resources analysis above for specific resource errors"
-                echo "   • Verify that updates are compatible with existing resources"
-                echo "   • Some resources may require replacement which could cause failures"
-                echo "   • Check for resource dependencies that may prevent updates"
-                echo ""
-                echo "🔧 Next steps:"
-                echo "   • Review the stack events above to identify what caused the update failure"
-                echo "   • Consider if the change requires resource replacement"
-                echo "   • You may need to manually resolve resource conflicts"
-                echo "   • Try the deployment again after fixing identified issues"
-                ;;
-              "ROLLBACK_COMPLETE")
-                echo "💡 Stack creation failed and rolled back - Common causes and solutions:"
-                echo "   • The original creation failed and AWS automatically cleaned up"
-                echo "   • Check the failed resources analysis above for the root cause"
-                echo "   • This is often due to resource conflicts or permission issues"
-                echo ""
-                echo "🔧 Next steps:"
-                echo "   • Review the stack events above to find the original failure cause"
-                echo "   • Delete this rolled-back stack: aws cloudformation delete-stack --stack-name $DEPLOYMENT_STACK_NAME"
-                echo "   • Fix the identified issues and retry the deployment"
-                ;;
-              "DELETE_FAILED")
-                echo "💡 Stack deletion failed - Manual intervention may be required:"
-                echo "   • Some resources may be preventing stack deletion"
-                echo "   • Check for resources with deletion protection or dependencies"
-                echo ""
-                echo "🔧 Next steps:"
-                echo "   • Review the failed resources analysis above"
-                echo "   • Manually delete problematic resources if safe to do so"
-                echo "   • Retry stack deletion after resolving resource conflicts"
-                ;;
-              *)
-                echo "💡 Unexpected stack status: $STACK_STATUS"
-                echo "   • Check the stack events above for failure details"
-                echo "   • Consult AWS CloudFormation documentation for this status"
-                echo ""
-                echo "🔧 Next steps:"
-                echo "   • Review the stack events and error logs above"
-                echo "   • Check AWS CloudFormation console for additional details"
-                echo "   • Consider contacting AWS support if the issue persists"
-                ;;
-            esac
-          else
-            echo "⚠️  Warning: Unable to retrieve stack status after failure (AWS CLI Exit Code: $STACK_STATUS_EXIT_CODE)"
-            echo "The stack may not exist or there may be permission issues."
-            echo ""
-            echo "🔧 Troubleshooting steps:"
-            echo "   • Verify AWS credentials and permissions"
-            echo "   • Check if the stack name is correct: $DEPLOYMENT_STACK_NAME"
-            echo "   • Try accessing the stack through AWS CloudFormation console"
-          fi
-          
-          # Ensure we exit with failure code
-          FINAL_EXIT_CODE=$DEPLOY_EXIT_CODE
-        fi
-        
-        # Enhanced deployment summary with comprehensive information
-        echo ""
-        echo "=== Deployment Summary ==="
-        echo "📋 Deployment Configuration:"
-        echo "   Stack Name: $DEPLOYMENT_STACK_NAME"
-        echo "   Template File: $DEPLOYMENT_TEMPLATE_PATH"
-        echo "   Template Size: $(wc -c < "$DEPLOYMENT_TEMPLATE_PATH" 2>/dev/null || echo "Unknown") bytes"
-        
-        if [ -n "$PARAMETER_OVERRIDES" ]; then
-          # Count parameters for security logging (avoid exposing sensitive values)
-          PARAM_COUNT=$(echo "$PARAMETER_OVERRIDES" | tr ' ' '\n' | wc -l | tr -d ' ')
-          echo "   Parameters: $PARAM_COUNT parameter(s) configured"
-          echo "   Parameter Names: $(echo "$PARAMETER_OVERRIDES" | sed 's/=[^ ]*//' | tr ' ' '\n' | tr '\n' ',' | sed 's/,$//' | sed 's/,/, /g')"
-        else
-          echo "   Parameters: None provided"
-        fi
-        
-        # Get additional stack information if available
-        if [ $FINAL_EXIT_CODE -eq 0 ]; then
-          echo ""
-          echo "📊 Stack Information:"
-          
-          # Get stack creation/update time
-          STACK_TIMESTAMP=$(aws cloudformation describe-stacks --stack-name "$DEPLOYMENT_STACK_NAME" --query "Stacks[0].LastUpdatedTime || Stacks[0].CreationTime" --output text 2>/dev/null)
-          if [ -n "$STACK_TIMESTAMP" ] && [ "$STACK_TIMESTAMP" != "None" ]; then
-            echo "   Last Modified: $STACK_TIMESTAMP"
-          fi
-          
-          # Get stack capabilities
-          STACK_CAPABILITIES=$(aws cloudformation describe-stacks --stack-name "$DEPLOYMENT_STACK_NAME" --query "Stacks[0].Capabilities" --output text 2>/dev/null)
-          if [ -n "$STACK_CAPABILITIES" ] && [ "$STACK_CAPABILITIES" != "None" ]; then
-            echo "   Capabilities: $STACK_CAPABILITIES"
-          fi
-          
-          # Count stack resources
-          RESOURCE_COUNT=$(aws cloudformation describe-stack-resources --stack-name "$DEPLOYMENT_STACK_NAME" --query "length(StackResources)" --output text 2>/dev/null)
-          if [ -n "$RESOURCE_COUNT" ] && [ "$RESOURCE_COUNT" != "None" ]; then
-            echo "   Resources: $RESOURCE_COUNT resource(s) in stack"
-          fi
-          
-          # Count stack outputs
-          OUTPUT_COUNT=$(aws cloudformation describe-stacks --stack-name "$DEPLOYMENT_STACK_NAME" --query "length(Stacks[0].Outputs || \`[]\`)" --output text 2>/dev/null)
-          if [ -n "$OUTPUT_COUNT" ] && [ "$OUTPUT_COUNT" != "None" ]; then
-            echo "   Outputs: $OUTPUT_COUNT output(s) defined"
-          fi
-        fi
-        
-        echo ""
-        echo "📈 Execution Results:"
-        echo "   Deployment Exit Code: $DEPLOY_EXIT_CODE"
-        echo "   Final Action Exit Code: $FINAL_EXIT_CODE"
-        
-        # Get execution time if possible
-        if [ -n "$SECONDS" ]; then
-          EXECUTION_TIME=$SECONDS
-          MINUTES=$((EXECUTION_TIME / 60))
-          SECONDS_REMAINDER=$((EXECUTION_TIME % 60))
-          if [ $MINUTES -gt 0 ]; then
-            echo "   Execution Time: ${MINUTES}m ${SECONDS_REMAINDER}s"
-          else
-            echo "   Execution Time: ${SECONDS_REMAINDER}s"
-          fi
-        fi
-        
-        echo ""
-        if [ $FINAL_EXIT_CODE -eq 0 ]; then
-          echo "🎉 SUCCESS: CloudFormation deployment completed successfully!"
-          echo ""
-          echo "✅ What happened:"
-          echo "   • Template validation passed"
-          echo "   • CloudFormation deployment executed successfully"
-          echo "   • Stack is in a healthy state"
-          if [ -n "$PARAMETER_OVERRIDES" ]; then
-            PARAM_COUNT=$(echo "$PARAMETER_OVERRIDES" | tr ' ' '\n' | wc -l | tr -d ' ')
-            echo "   • $PARAM_COUNT parameter(s) were applied"
-          fi
-          echo ""
-          echo "🔍 Next steps:"
-          echo "   • Review stack outputs above for important information"
-          echo "   • Verify your application is working as expected"
-          echo "   • Check AWS CloudFormation console for additional details"
-          echo "   • Stack ARN: arn:aws:cloudformation:$(aws configure get region 2>/dev/null || echo "REGION"):$(aws sts get-caller-identity --query Account --output text 2>/dev/null || echo "ACCOUNT"):stack/$DEPLOYMENT_STACK_NAME/*"
-        else
-          echo "💥 FAILURE: CloudFormation deployment failed!"
-          echo ""
-          echo "❌ What went wrong:"
-          echo "   • Deployment process exited with code $DEPLOY_EXIT_CODE"
-          echo "   • Check the error analysis and troubleshooting guidance above"
-          echo "   • Review stack events for specific failure details"
-          echo ""
-          echo "🔧 Immediate actions:"
-          echo "   • Review the detailed error information above"
-          echo "   • Check AWS CloudFormation console for additional context"
-          echo "   • Follow the troubleshooting guidance provided"
-          echo "   • Fix identified issues before retrying deployment"
-        fi
-
-    - name: Cleanup Temporary Files
-      shell: bash
-      if: always()
-      run: |
-        echo "=== Cleanup ==="
-        CLEANUP_ERRORS=0
-        
-        # Clean up temporary files
-        for file in /tmp/stack-name /tmp/template-path /tmp/deployment-parameters /tmp/parameter-overrides /tmp/deploy-pid /tmp/deploy-pid-file /tmp/deploy-log-file /tmp/deploy-exit-code; do
-          if [ -f "$file" ]; then
-            if rm -f "$file" 2>/dev/null; then
-              echo "✅ Cleaned up temporary file: $(basename "$file")"
-            else
-              echo "⚠️  Warning: Failed to remove temporary file: $file"
-              CLEANUP_ERRORS=$((CLEANUP_ERRORS + 1))
-            fi
-          fi
-        done
-        
-        # Clean up any remaining deployment files
-        for file in /tmp/cf_deploy_*.pid /tmp/cf_deploy_*.log; do
-          if [ -f "$file" ]; then
-            if rm -f "$file" 2>/dev/null; then
-              echo "✅ Cleaned up deployment file: $(basename "$file")"
-            else
-              echo "⚠️  Warning: Failed to remove deployment file: $file"
-              CLEANUP_ERRORS=$((CLEANUP_ERRORS + 1))
-            fi
-          fi
-        done
-        
-        if [ $CLEANUP_ERRORS -eq 0 ]; then
-          echo "✅ Cleanup completed successfully"
-        else
-          echo "⚠️  Cleanup completed with $CLEANUP_ERRORS warnings"
-        fi
-        
-        # Final exit with the deployment result
-        if [ -f /tmp/deploy-exit-code ]; then
-          FINAL_EXIT_CODE=$(cat /tmp/deploy-exit-code)
-          exit $FINAL_EXIT_CODE
-        else
-          # If we can't determine the exit code, assume failure
-          exit 1
         fi
