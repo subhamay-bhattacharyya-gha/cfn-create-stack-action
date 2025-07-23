@@ -96,7 +96,7 @@ jobs:
           aws-region: us-east-1
 
       - name: Deploy CloudFormation Stack
-        uses: your-org/cloudformation-deployment-action@v1
+        uses: subhamay-bhattacharyya-gha/cfn-create-stack-action@main
         with:
           stack-name: my-application-stack
           template-path: infrastructure/app-stack.yaml
@@ -106,7 +106,7 @@ jobs:
 
 ```yaml
       - name: Deploy with Parameters
-        uses: your-org/cloudformation-deployment-action@v1
+        uses: subhamay-bhattacharyya-gha/cfn-create-stack-action@main
         with:
           stack-name: my-app-${{ github.ref_name }}
           template-path: infrastructure/app-stack.yaml
@@ -122,7 +122,7 @@ jobs:
 
 ```yaml
       - name: Deploy with CloudFormation Parameters
-        uses: your-org/cloudformation-deployment-action@v1
+        uses: subhamay-bhattacharyya-gha/cfn-create-stack-action@main
         with:
           stack-name: my-database-stack
           template-path: infrastructure/database.yaml
@@ -163,7 +163,7 @@ jobs:
           aws-region: ${{ vars.AWS_REGION }}
 
       - name: Deploy Infrastructure
-        uses: your-org/cloudformation-deployment-action@v1
+        uses: subhamay-bhattacharyya-gha/cfn-create-stack-action@main
         with:
           stack-name: myapp-${{ github.event.inputs.environment }}
           template-path: infrastructure/main.yaml
@@ -189,7 +189,7 @@ jobs:
           fi
 
       - name: Deploy Stack
-        uses: your-org/cloudformation-deployment-action@v1
+        uses: subhamay-bhattacharyya-gha/cfn-create-stack-action@main
         with:
           stack-name: myapp-${{ github.ref_name }}
           template-path: infrastructure/app.yaml
