@@ -1,7 +1,7 @@
 {
   "name": "cfn-create-stack-action",
   "version": "0.0.0",
-  "description": "A sample project using semantic release with custom plugins.",
+  "description": "CloudFormation Create Stack GitHub action using semantic release with custom plugins.",
   "main": "index.js",
   "scripts": {
     "release": "semantic-release"

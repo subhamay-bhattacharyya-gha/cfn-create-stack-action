@@ -70,6 +70,130 @@ The following tools are required and typically pre-installed on GitHub Actions r
 
 ---
 
+## Usage
+
+### Quick Start
+
+To use this action in your GitHub workflow, follow these steps:
+
+1. **Set up AWS credentials** in your repository (see [Prerequisites](#prerequisites))
+2. **Create a CloudFormation template** in your repository
+3. **Add the action** to your workflow file
+
+### Basic Workflow Setup
+
+Create a `.github/workflows/deploy.yml` file in your repository:
+
+```yaml
+name: Deploy CloudFormation Stack
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Deploy Infrastructure
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: us-east-1
+      
+      - name: Deploy CloudFormation stack
+        uses: subhamay-bhattacharyya-gha/cfn-create-stack-action@main
+        with:
+          stack-name: my-stack
+          template-path: cloudformation/template.yaml
+```
+
+### Action Inputs
+
+The action accepts the following inputs:
+
+- **`stack-name`** (required): The name for your CloudFormation stack
+- **`template-path`** (required): Path to your CloudFormation template file
+- **`deployment-parameters`** (optional): Parameters for your template in JSON format
+
+### Parameter Usage
+
+You can pass parameters to your CloudFormation template in two ways:
+
+#### Method 1: Simple JSON Object
+```yaml
+deployment-parameters: |
+  {
+    "Environment": "production",
+    "InstanceType": "t3.micro"
+  }
+```
+
+#### Method 2: CloudFormation Native Format
+```yaml
+deployment-parameters: |
+  [
+    {"ParameterName": "Environment", "ParameterValue": "production"},
+    {"ParameterName": "InstanceType", "ParameterValue": "t3.micro"}
+  ]
+```
+
+### Common Use Cases
+
+#### 1. Environment-based Deployment
+```yaml
+- name: Deploy to environment
+  uses: subhamay-bhattacharyya-gha/cfn-create-stack-action@main
+  with:
+    stack-name: myapp-${{ github.ref_name }}
+    template-path: infrastructure/main.yaml
+    deployment-parameters: |
+      {
+        "Environment": "${{ github.ref_name }}",
+        "InstanceType": "${{ github.ref_name == 'main' && 't3.medium' || 't3.micro' }}"
+      }
+```
+
+#### 2. Using GitHub Secrets
+```yaml
+- name: Deploy with secrets
+  uses: subhamay-bhattacharyya-gha/cfn-create-stack-action@main
+  with:
+    stack-name: secure-stack
+    template-path: templates/secure.yaml
+    deployment-parameters: |
+      {
+        "DatabasePassword": "${{ secrets.DB_PASSWORD }}",
+        "ApiKey": "${{ secrets.API_KEY }}"
+      }
+```
+
+#### 3. Matrix Deployments
+```yaml
+strategy:
+  matrix:
+    environment: [dev, staging, prod]
+    
+steps:
+  - name: Deploy to ${{ matrix.environment }}
+    uses: subhamay-bhattacharyya-gha/cfn-create-stack-action@main
+    with:
+      stack-name: myapp-${{ matrix.environment }}
+      template-path: infrastructure/app.yaml
+      deployment-parameters: |
+        {
+          "Environment": "${{ matrix.environment }}"
+        }
+```
+
+---
+
 ## Usage Examples
 
 ### Basic Usage
