@@ -1,44 +1,429 @@
-name: 'Action Name'
-description: 'Action Description'
+name: 'Deploy CloudFormation Stack'
+description: 'Deploy AWS CloudFormation stacks with parameter support and real-time monitoring'
 
 inputs:
-  input-1:
-    description: Input description.
-    required: false
-    default: default-value
-  input-2:
-    description: Input description.
-    required: false
-    default: default-value
-  input-3:
-    description: Input description.
-    required: false
-    default: default-value
-  github-token:
-    description: 'GitHub token'
+  stack-name:
+    description: 'Name of the CloudFormation stack to deploy'
     required: true
+  template-path:
+    description: 'Path to the CloudFormation template file'
+    required: true
+  deployment-parameters:
+    description: 'CloudFormation parameters as JSON string'
+    required: false
+    default: 'null'
 
 runs:
   using: 'composite'
   steps:
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: 3.x
+    - name: Validate System Dependencies
+      shell: bash
+      run: |
+        echo "=== System Dependencies Validation ==="
+        
+        # Check AWS CLI availability
+        if ! command -v aws >/dev/null 2>&1; then
+          echo "❌ Error: AWS CLI is not installed or not available in PATH"
+          echo "Please ensure AWS CLI is installed and configured before using this action."
+          echo "See: https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html"
+          exit 127
+        fi
+        
+        # Check jq availability for parameter processing
+        if ! command -v jq >/dev/null 2>&1; then
+          echo "❌ Error: jq is not installed or not available in PATH"
+          echo "jq is required for JSON parameter processing."
+          echo "Please ensure jq is installed in the runner environment."
+          exit 127
+        fi
+        
+        # Verify AWS CLI can be executed
+        if ! aws --version >/dev/null 2>&1; then
+          echo "❌ Error: AWS CLI is installed but cannot be executed"
+          echo "There may be a configuration or permission issue."
+          exit 126
+        fi
+        
+        echo "✅ System dependencies verified (AWS CLI, jq)"
+        
+        # Verify AWS credentials are configured
+        echo "Verifying AWS credentials..."
+        if ! aws sts get-caller-identity >/dev/null 2>&1; then
+          echo "❌ Error: AWS credentials are not configured or invalid"
+          echo "Please ensure AWS credentials are properly configured for this action."
+          echo "This can be done through:"
+          echo "  - IAM roles (recommended for GitHub Actions)"
+          echo "  - Environment variables (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)"
+          echo "  - AWS credential files"
+          echo "See: https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-quickstart.html"
+          exit 1
+        fi
+        
+        # Get and display AWS identity for verification
+        AWS_IDENTITY=$(aws sts get-caller-identity --output text --query 'Arn' 2>/dev/null || echo "Unknown")
+        echo "✅ AWS credentials verified (Identity: $AWS_IDENTITY)"
 
-    - name: Sample step to call GitHub API
+    - name: Validate Inputs and Template
       shell: bash
       env:
-        GITHUB_TOKEN: ${{ inputs.github-token }}
+        DEPLOYMENT_STACK_NAME: ${{ inputs.stack-name }}
+        DEPLOYMENT_TEMPLATE_PATH: ${{ inputs.template-path }}
+        DEPLOYMENT_PARAMETERS: ${{ inputs.deployment-parameters }}
       run: |
-        ISSUE_NUMBER="${{ github.event.issue.number }}"
-        REPO="${{ github.repository }}"
-        OWNER=$(echo $REPO | cut -d'/' -f1)
-        BRANCH_NAME="${{ steps.create-branch.outputs.branch-name }}"
-        COMMENT_BODY="Branch [$BRANCH_NAME](https://github.com/$OWNER/$REPO/tree/$BRANCH_NAME) created 🚀"
+        echo "=== Input Validation ==="
+        
+        # Validate required inputs are provided
+        if [ -z "$DEPLOYMENT_STACK_NAME" ] || [ "$DEPLOYMENT_STACK_NAME" = "null" ]; then
+          echo "❌ Error: stack-name is required but not provided"
+          exit 1
+        fi
+        
+        if [ -z "$DEPLOYMENT_TEMPLATE_PATH" ] || [ "$DEPLOYMENT_TEMPLATE_PATH" = "null" ]; then
+          echo "❌ Error: template-path is required but not provided"
+          exit 1
+        fi
+        
+        # Validate template file existence
+        if [ ! -f "$DEPLOYMENT_TEMPLATE_PATH" ]; then
+          echo "❌ Error: CloudFormation template file not found at path: $DEPLOYMENT_TEMPLATE_PATH"
+          echo "Please ensure the template file exists and the path is correct."
+          exit 1
+        fi
+        
+        # Validate template file is readable
+        if [ ! -r "$DEPLOYMENT_TEMPLATE_PATH" ]; then
+          echo "❌ Error: CloudFormation template file is not readable: $DEPLOYMENT_TEMPLATE_PATH"
+          echo "Please check file permissions."
+          exit 1
+        fi
+        
+        # Handle null/empty parameters
+        if [ "$DEPLOYMENT_PARAMETERS" = "null" ] || [ -z "$DEPLOYMENT_PARAMETERS" ]; then
+          DEPLOYMENT_PARAMETERS=""
+        fi
+        
+        # Display validated configuration
+        echo "✅ Input validation completed successfully"
+        echo "Stack Name: $DEPLOYMENT_STACK_NAME"
+        echo "Template Path: $DEPLOYMENT_TEMPLATE_PATH"
+        echo "Template File: $(basename "$DEPLOYMENT_TEMPLATE_PATH")"
+        echo "Template Size: $(wc -c < "$DEPLOYMENT_TEMPLATE_PATH") bytes"
+        
+        if [ -n "$DEPLOYMENT_PARAMETERS" ] && [ "$DEPLOYMENT_PARAMETERS" != "" ]; then
+          echo "Parameters: Provided ($(echo "$DEPLOYMENT_PARAMETERS" | wc -c) characters)"
+        else
+          echo "Parameters: None provided"
+        fi
+        
+        # Save validated inputs to environment files for next steps
+        echo "$DEPLOYMENT_STACK_NAME" > /tmp/stack-name
+        echo "$DEPLOYMENT_TEMPLATE_PATH" > /tmp/template-path
+        echo "$DEPLOYMENT_PARAMETERS" > /tmp/deployment-parameters
+        
+        # Template validation step
+        echo ""
+        echo "=== Template Validation ==="
+        echo "Validating CloudFormation template..."
+        VALIDATION_OUTPUT=$(aws cloudformation validate-template --template-body "file://$DEPLOYMENT_TEMPLATE_PATH" 2>&1)
+        VALIDATION_EXIT_CODE=$?
+        
+        if [ $VALIDATION_EXIT_CODE -ne 0 ]; then
+          echo "❌ Error: CloudFormation template validation failed (Exit Code: $VALIDATION_EXIT_CODE)"
+          echo "Template: $DEPLOYMENT_TEMPLATE_PATH"
+          echo ""
+          echo "AWS CLI validation output:"
+          echo "$VALIDATION_OUTPUT"
+          echo ""
+          echo "Please fix the template errors and try again."
+          exit $VALIDATION_EXIT_CODE
+        fi
+        echo "✅ Template validation successful"
 
-        curl -s -X POST \
-          -H "Authorization: token $GITHUB_TOKEN" \
-          -H "Content-Type: application/json" \
-          -d "{\"body\": \"$COMMENT_BODY\"}" \
-          https://api.github.com/repos/$REPO/issues/$ISSUE_NUMBER/comments
+    - name: Process Parameters
+      shell: bash
+      run: |
+        echo "=== Parameter Processing ==="
+        
+        # Load inputs from previous step
+        DEPLOYMENT_STACK_NAME=$(cat /tmp/stack-name)
+        DEPLOYMENT_TEMPLATE_PATH=$(cat /tmp/template-path)
+        DEPLOYMENT_PARAMETERS=$(cat /tmp/deployment-parameters)
+        
+        PARAMETER_OVERRIDES=""
+        
+        if [ -n "$DEPLOYMENT_PARAMETERS" ] && [ "$DEPLOYMENT_PARAMETERS" != "" ] && [ "$DEPLOYMENT_PARAMETERS" != "null" ]; then
+          echo "Processing deployment parameters..."
+          
+          # PARAMETER PROCESSING LOGIC:
+          # This section handles two different JSON parameter formats and converts them
+          # to AWS CLI parameter overrides format (key=value pairs)
+          
+          # Step 1: Validate JSON format with detailed error reporting
+          # Use jq to parse and validate the JSON structure
+          JSON_VALIDATION_OUTPUT=$(echo "$DEPLOYMENT_PARAMETERS" | jq . 2>&1)
+          JSON_VALIDATION_EXIT_CODE=$?
+          
+          if [ $JSON_VALIDATION_EXIT_CODE -ne 0 ]; then
+            echo "❌ Error: deployment-parameters must be valid JSON (Exit Code: $JSON_VALIDATION_EXIT_CODE)"
+            # Security: Avoid logging raw parameters - only show length for debugging
+            PARAM_LENGTH=$(echo "$DEPLOYMENT_PARAMETERS" | wc -c | tr -d ' ')
+            echo "Provided parameters: [HIDDEN - $PARAM_LENGTH characters for security]"
+            echo ""
+            echo "JSON validation error:"
+            echo "$JSON_VALIDATION_OUTPUT"
+            echo ""
+            echo "Please ensure your parameters are properly formatted JSON."
+            exit $JSON_VALIDATION_EXIT_CODE
+          fi
+          
+          # Step 2: Detect parameter format using jq type checking
+          # The action supports two formats:
+          # 1. CloudFormation native: [{"ParameterName": "key", "ParameterValue": "value"}]
+          # 2. Simple key-value: {"key": "value"}
+          
+          # Check if it's an array (CloudFormation native format)
+          if echo "$DEPLOYMENT_PARAMETERS" | jq -e 'type == "array"' > /dev/null 2>&1; then
+            echo "Detected CloudFormation native parameter format (array)"
+            
+            # Validate array structure: each element must be an object with required keys
+            # This ensures the array contains proper CloudFormation parameter objects
+            if ! echo "$DEPLOYMENT_PARAMETERS" | jq -e 'all(type == "object" and has("ParameterName") and has("ParameterValue"))' > /dev/null 2>&1; then
+              echo "❌ Error: CloudFormation parameter array must contain objects with 'ParameterName' and 'ParameterValue' keys"
+              echo "Expected format: [{\"ParameterName\": \"key\", \"ParameterValue\": \"value\"}]"
+              exit 1
+            fi
+            
+            # Convert CloudFormation native format to AWS CLI parameter overrides
+            # Transform: [{"ParameterName": "Env", "ParameterValue": "prod"}] -> "Env=prod"
+            PARAMETER_CONVERSION_OUTPUT=$(echo "$DEPLOYMENT_PARAMETERS" | jq -r '.[] | "\(.ParameterName)=\(.ParameterValue)"' 2>&1)
+            PARAMETER_CONVERSION_EXIT_CODE=$?
+            
+            if [ $PARAMETER_CONVERSION_EXIT_CODE -ne 0 ]; then
+              echo "❌ Error: Failed to convert CloudFormation parameters (Exit Code: $PARAMETER_CONVERSION_EXIT_CODE)"
+              echo "Conversion error: $PARAMETER_CONVERSION_OUTPUT"
+              exit $PARAMETER_CONVERSION_EXIT_CODE
+            fi
+            
+            # Join multiple parameters with spaces and remove trailing space
+            PARAMETER_OVERRIDES=$(echo "$PARAMETER_CONVERSION_OUTPUT" | tr '\n' ' ' | sed 's/ $//')
+            
+          # Check if it's an object (simple key-value format)
+          elif echo "$DEPLOYMENT_PARAMETERS" | jq -e 'type == "object"' > /dev/null 2>&1; then
+            echo "Detected simple key-value parameter format (object)"
+            
+            # Convert simple key-value format to AWS CLI parameter overrides
+            # Transform: {"Environment": "prod", "Type": "t3.micro"} -> "Environment=prod Type=t3.micro"
+            # Uses jq's to_entries to convert object to key-value pairs
+            PARAMETER_CONVERSION_OUTPUT=$(echo "$DEPLOYMENT_PARAMETERS" | jq -r 'to_entries[] | "\(.key)=\(.value)"' 2>&1)
+            PARAMETER_CONVERSION_EXIT_CODE=$?
+            
+            if [ $PARAMETER_CONVERSION_EXIT_CODE -ne 0 ]; then
+              echo "❌ Error: Failed to convert key-value parameters (Exit Code: $PARAMETER_CONVERSION_EXIT_CODE)"
+              echo "Conversion error: $PARAMETER_CONVERSION_OUTPUT"
+              exit $PARAMETER_CONVERSION_EXIT_CODE
+            fi
+            
+            # Join multiple parameters with spaces and remove trailing space
+            PARAMETER_OVERRIDES=$(echo "$PARAMETER_CONVERSION_OUTPUT" | tr '\n' ' ' | sed 's/ $//')
+            
+          else
+            echo "❌ Error: deployment-parameters must be either an array of CloudFormation parameter objects or a simple key-value object"
+            echo "CloudFormation format: [{\"ParameterName\": \"key\", \"ParameterValue\": \"value\"}]"
+            echo "Simple format: {\"key\": \"value\"}"
+            exit 1
+          fi
+          
+          # Validate that we have parameter overrides
+          if [ -z "$PARAMETER_OVERRIDES" ]; then
+            echo "⚠️  Warning: No parameters extracted from provided JSON"
+            echo "Parameters will be empty for deployment"
+          else
+            echo "✅ Parameter processing completed successfully"
+            # Count parameters for security logging (avoid exposing sensitive values)
+            PARAM_COUNT=$(echo "$PARAMETER_OVERRIDES" | tr ' ' '\n' | wc -l | tr -d ' ')
+            echo "Parameter overrides: $PARAM_COUNT parameter(s) processed (values hidden for security)"
+          fi
+          
+        else
+          echo "No parameters provided - deploying stack without parameter overrides"
+        fi
+        
+        # Save parameter overrides for next step
+        echo "$PARAMETER_OVERRIDES" > /tmp/parameter-overrides
+        echo "Parameter processing completed."
+
+    - name: Deploy CloudFormation Stack
+      shell: bash
+      run: |
+        echo "=== CloudFormation Deployment ==="
+        
+        # Load inputs from previous steps
+        DEPLOYMENT_STACK_NAME=$(cat /tmp/stack-name)
+        DEPLOYMENT_TEMPLATE_PATH=$(cat /tmp/template-path)
+        PARAMETER_OVERRIDES=$(cat /tmp/parameter-overrides)
+        
+        # Prepare deployment command
+        DEPLOY_CMD="aws cloudformation deploy --template-file \"$DEPLOYMENT_TEMPLATE_PATH\" --stack-name \"$DEPLOYMENT_STACK_NAME\" --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM --no-fail-on-empty-changeset"
+        
+        if [ -n "$PARAMETER_OVERRIDES" ]; then
+          DEPLOY_CMD="$DEPLOY_CMD --parameter-overrides $PARAMETER_OVERRIDES"
+        fi
+        
+        echo "Starting CloudFormation deployment..."
+        echo "Stack Name: $DEPLOYMENT_STACK_NAME"
+        echo "Template: $DEPLOYMENT_TEMPLATE_PATH"
+        if [ -n "$PARAMETER_OVERRIDES" ]; then
+          # Count parameters for security logging (avoid exposing sensitive values)
+          PARAM_COUNT=$(echo "$PARAMETER_OVERRIDES" | tr ' ' '\n' | wc -l | tr -d ' ')
+          echo "Parameters: $PARAM_COUNT parameter(s) configured (values hidden for security)"
+        else
+          echo "Parameters: None"
+        fi
+        echo ""
+        
+        # Log deployment command without exposing parameter values for security
+        DEPLOY_CMD_SAFE=$(echo "$DEPLOY_CMD" | sed 's/--parameter-overrides [^[:space:]]*/--parameter-overrides [HIDDEN_FOR_SECURITY]/')
+        echo "Executing: $DEPLOY_CMD_SAFE"
+        
+        # Execute the command directly instead of in background
+        # This ensures we get the proper exit code and output
+        echo "Starting CloudFormation deployment..."
+        eval "$DEPLOY_CMD"
+        DEPLOY_EXIT_CODE=$?
+        
+        # Save the exit code for the next step
+        echo "$DEPLOY_EXIT_CODE" > /tmp/deploy-exit-code
+        
+        # If deployment failed, show error details
+        if [ $DEPLOY_EXIT_CODE -ne 0 ]; then
+          echo "❌ CloudFormation deployment failed with exit code: $DEPLOY_EXIT_CODE"
+          exit $DEPLOY_EXIT_CODE
+        fi
+        
+        echo "✅ CloudFormation deployment completed successfully!"
+
+    - name: Display Stack Information
+      shell: bash
+      run: |
+        echo "=== Stack Information ==="
+        
+        # Load deployment info
+        DEPLOYMENT_STACK_NAME=$(cat /tmp/stack-name)
+        DEPLOY_EXIT_CODE=$(cat /tmp/deploy-exit-code)
+        
+        # If deployment failed, exit with the same code
+        if [ $DEPLOY_EXIT_CODE -ne 0 ]; then
+          echo "❌ CloudFormation deployment failed with exit code: $DEPLOY_EXIT_CODE"
+          exit $DEPLOY_EXIT_CODE
+        fi
+        
+        # Display stack events with only essential attributes for better readability
+        echo "Recent Stack Events:"
+        aws cloudformation describe-stack-events \
+          --stack-name "$DEPLOYMENT_STACK_NAME" \
+          --query "StackEvents[:10].[Timestamp,LogicalResourceId,ResourceType,ResourceStatus,ResourceStatusReason]" \
+          --output table || echo "⚠️ Unable to retrieve stack events"
+        
+        # Display stack outputs in a clean, readable format
+        echo ""
+        echo "=== Stack Outputs ==="
+        STACK_OUTPUTS=$(aws cloudformation describe-stacks \
+          --stack-name "$DEPLOYMENT_STACK_NAME" \
+          --query "Stacks[0].Outputs" \
+          --output json 2>/dev/null)
+          
+        if [ $? -eq 0 ] && [ "$STACK_OUTPUTS" != "null" ] && [ "$STACK_OUTPUTS" != "[]" ]; then
+          # Format outputs in a clean, readable way
+          echo "$STACK_OUTPUTS" | jq -r '.[] | "• \(.OutputKey): \(.OutputValue)\(if .Description then "\n  Description: \(.Description)" else "" end)"'
+        else
+          echo "⚠️ No outputs found for stack"
+        fi
+        
+        # Display stack status
+        STACK_STATUS=$(aws cloudformation describe-stacks \
+          --stack-name "$DEPLOYMENT_STACK_NAME" \
+          --query "Stacks[0].StackStatus" \
+          --output text)
+        
+        echo ""
+        echo "Final Stack Status: $STACK_STATUS"
+        
+        # Verify successful status
+        case "$STACK_STATUS" in
+          "CREATE_COMPLETE"|"UPDATE_COMPLETE"|"UPDATE_COMPLETE_CLEANUP_IN_PROGRESS")
+            echo "✅ Stack deployment successful!"
+            ;;
+          *)
+            echo "⚠️ Stack is in state: $STACK_STATUS"
+            echo "This may indicate an issue with the deployment."
+            exit 1
+            ;;
+        esac
+
+    - name: Display Final Results and Stack Information
+      shell: bash
+      run: |
+        # Load deployment info from previous steps
+        DEPLOYMENT_STACK_NAME=$(cat /tmp/stack-name)
+        DEPLOYMENT_TEMPLATE_PATH=$(cat /tmp/template-path)
+        PARAMETER_OVERRIDES=$(cat /tmp/parameter-overrides)
+        DEPLOY_EXIT_CODE=$(cat /tmp/deploy-exit-code)
+        
+        # Display deployment summary
+        echo ""
+        echo "=== Deployment Summary ==="
+        echo "📋 Deployment Configuration:"
+        echo "Stack Name: $DEPLOYMENT_STACK_NAME"
+        echo "Template File: $DEPLOYMENT_TEMPLATE_PATH"
+        echo "Template Size: $(wc -c < "$DEPLOYMENT_TEMPLATE_PATH") bytes"
+        
+        if [ -n "$PARAMETER_OVERRIDES" ]; then
+          # Count parameters for security logging (avoid exposing sensitive values)
+          PARAM_COUNT=$(echo "$PARAMETER_OVERRIDES" | tr ' ' '\n' | wc -l | tr -d ' ')
+          PARAM_NAMES=$(echo "$PARAMETER_OVERRIDES" | sed 's/=.*//g' | tr '\n' ', ')
+          echo "Parameters: $PARAM_COUNT parameter(s) configured"
+          echo "Parameter Names: $PARAM_NAMES"
+        else
+          echo "Parameters: None"
+        fi
+        
+        # Get execution time
+        START_TIME=$(date +%s)
+        
+        # Verify stack status with error handling
+        echo ""
+        echo "📈 Execution Results:"
+        echo "Deployment Exit Code: $DEPLOY_EXIT_CODE"
+        
+        # Determine final status
+        if [ $DEPLOY_EXIT_CODE -eq 0 ]; then
+          # Get stack status
+          STACK_STATUS=$(aws cloudformation describe-stacks --stack-name "$DEPLOYMENT_STACK_NAME" --query "Stacks[0].StackStatus" --output text 2>/dev/null || echo "UNKNOWN")
+          
+          # Calculate execution time
+          END_TIME=$(date +%s)
+          EXECUTION_TIME=$((END_TIME - START_TIME))
+          echo "Final Stack Status: $STACK_STATUS"
+          echo "Execution Time: ${EXECUTION_TIME}s"
+          
+          echo "✅ SUCCESS: CloudFormation deployment completed successfully!"
+          echo "Stack is in state: $STACK_STATUS"
+          
+          # Exit with success
+          exit 0
+        else
+          # Calculate execution time
+          END_TIME=$(date +%s)
+          EXECUTION_TIME=$((END_TIME - START_TIME))
+          echo "Final Action Exit Code: $DEPLOY_EXIT_CODE"
+          echo "Execution Time: ${EXECUTION_TIME}s"
+          
+          echo "💥 FAILURE: CloudFormation deployment failed!"
+          echo "❌ What went wrong:"
+          echo "• Deployment process exited with code $DEPLOY_EXIT_CODE"
+          echo "• Check the error analysis and troubleshooting guidance above"
+          echo "• Review stack events for specific failure details"
+          
+          # Exit with the same error code
+          exit $DEPLOY_EXIT_CODE
+        fi

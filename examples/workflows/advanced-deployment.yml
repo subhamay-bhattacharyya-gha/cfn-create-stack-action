@@ -1,0 +1,418 @@
+# Advanced CloudFormation Deployment Workflow
+# This workflow demonstrates advanced features including:
+# - Matrix deployments across multiple regions
+# - Stack dependency management
+# - Rollback capabilities
+# - Integration testing
+# - Notification systems
+
+name: Advanced Multi-Region Deployment
+
+on:
+  push:
+    branches: [main]
+    paths: ['infrastructure/**']
+  workflow_dispatch:
+    inputs:
+      regions:
+        description: 'Comma-separated list of regions to deploy to'
+        required: false
+        default: 'us-east-1,us-west-2'
+      skip_tests:
+        description: 'Skip integration tests'
+        required: false
+        type: boolean
+        default: false
+      rollback_on_failure:
+        description: 'Automatically rollback on failure'
+        required: false
+        type: boolean
+        default: true
+
+env:
+  SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+jobs:
+  prepare:
+    name: Prepare Deployment
+    runs-on: ubuntu-latest
+    outputs:
+      regions: ${{ steps.regions.outputs.regions }}
+      deployment_id: ${{ steps.deployment.outputs.deployment_id }}
+      
+    steps:
+      - name: Generate Deployment ID
+        id: deployment
+        run: |
+          DEPLOYMENT_ID="deploy-$(date +%Y%m%d-%H%M%S)-${{ github.run_number }}"
+          echo "deployment_id=$DEPLOYMENT_ID" >> $GITHUB_OUTPUT
+
+      - name: Parse Regions
+        id: regions
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            REGIONS="${{ github.event.inputs.regions }}"
+          else
+            REGIONS="us-east-1,us-west-2"
+          fi
+          
+          # Convert comma-separated string to JSON array
+          REGIONS_JSON=$(echo "$REGIONS" | jq -R 'split(",")')
+          echo "regions=$REGIONS_JSON" >> $GITHUB_OUTPUT
+
+      - name: Notify Deployment Start
+        run: |
+          curl -X POST -H 'Content-type: application/json' \
+            --data "{\"text\":\"🚀 Starting deployment ${{ steps.deployment.outputs.deployment_id }} to regions: ${{ steps.regions.outputs.regions }}\"}" \
+            $SLACK_WEBHOOK_URL
+
+  validate:
+    name: Validate Templates
+    runs-on: ubuntu-latest
+    needs: prepare
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Install cfn-lint
+        run: pip install cfn-lint
+
+      - name: Lint CloudFormation Templates
+        run: |
+          find infrastructure -name "*.yaml" -o -name "*.yml" | while read template; do
+            echo "Linting $template..."
+            cfn-lint "$template"
+          done
+
+      - name: Validate Templates with AWS
+        run: |
+          for template in infrastructure/*.yaml infrastructure/*.yml; do
+            if [ -f "$template" ]; then
+              echo "Validating $template with AWS..."
+              aws cloudformation validate-template --template-body "file://$template"
+            fi
+          done
+
+  deploy-global:
+    name: Deploy Global Resources
+    runs-on: ubuntu-latest
+    needs: [prepare, validate]
+    environment: production
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Deploy IAM Stack
+        uses: your-org/cloudformation-deployment-action@v1
+        with:
+          stack-name: myapp-iam-global
+          template-path: infrastructure/iam-stack.yaml
+          deployment-parameters: |
+            {
+              "Environment": "production",
+              "ApplicationName": "myapp",
+              "DeploymentId": "${{ needs.prepare.outputs.deployment_id }}"
+            }
+
+      - name: Deploy Route53 Stack
+        uses: your-org/cloudformation-deployment-action@v1
+        with:
+          stack-name: myapp-dns-global
+          template-path: infrastructure/route53-stack.yaml
+          deployment-parameters: |
+            {
+              "DomainName": "${{ vars.DOMAIN_NAME }}",
+              "Environment": "production"
+            }
+
+  deploy-regional:
+    name: Deploy to ${{ matrix.region }}
+    runs-on: ubuntu-latest
+    needs: [prepare, validate, deploy-global]
+    environment: production
+    strategy:
+      matrix:
+        region: ${{ fromJson(needs.prepare.outputs.regions) }}
+      fail-fast: false
+      max-parallel: 2
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ matrix.region }}
+
+      - name: Deploy VPC Stack
+        id: vpc
+        uses: your-org/cloudformation-deployment-action@v1
+        with:
+          stack-name: myapp-vpc-${{ matrix.region }}
+          template-path: infrastructure/vpc-stack.yaml
+          deployment-parameters: |
+            {
+              "Environment": "production",
+              "Region": "${{ matrix.region }}",
+              "VpcCidr": "${{ matrix.region == 'us-east-1' && '10.0.0.0/16' || '10.1.0.0/16' }}",
+              "DeploymentId": "${{ needs.prepare.outputs.deployment_id }}"
+            }
+
+      - name: Deploy Security Stack
+        id: security
+        uses: your-org/cloudformation-deployment-action@v1
+        with:
+          stack-name: myapp-security-${{ matrix.region }}
+          template-path: infrastructure/security-stack.yaml
+          deployment-parameters: |
+            {
+              "Environment": "production",
+              "Region": "${{ matrix.region }}",
+              "VpcStackName": "myapp-vpc-${{ matrix.region }}"
+            }
+
+      - name: Deploy Database Stack
+        id: database
+        uses: your-org/cloudformation-deployment-action@v1
+        with:
+          stack-name: myapp-database-${{ matrix.region }}
+          template-path: infrastructure/database-stack.yaml
+          deployment-parameters: |
+            [
+              {"ParameterName": "Environment", "ParameterValue": "production"},
+              {"ParameterName": "Region", "ParameterValue": "${{ matrix.region }}"},
+              {"ParameterName": "VpcStackName", "ParameterValue": "myapp-vpc-${{ matrix.region }}"},
+              {"ParameterName": "SecurityStackName", "ParameterValue": "myapp-security-${{ matrix.region }}"},
+              {"ParameterName": "DBInstanceClass", "ParameterValue": "db.r5.large"},
+              {"ParameterName": "MultiAZ", "ParameterValue": "true"},
+              {"ParameterName": "BackupRetentionPeriod", "ParameterValue": "30"}
+            ]
+
+      - name: Deploy Application Stack
+        id: application
+        uses: your-org/cloudformation-deployment-action@v1
+        with:
+          stack-name: myapp-application-${{ matrix.region }}
+          template-path: infrastructure/app-stack.yaml
+          deployment-parameters: |
+            {
+              "Environment": "production",
+              "Region": "${{ matrix.region }}",
+              "VpcStackName": "myapp-vpc-${{ matrix.region }}",
+              "SecurityStackName": "myapp-security-${{ matrix.region }}",
+              "DatabaseStackName": "myapp-database-${{ matrix.region }}",
+              "InstanceType": "t3.medium",
+              "MinSize": "2",
+              "MaxSize": "10",
+              "DesiredCapacity": "3",
+              "DeploymentId": "${{ needs.prepare.outputs.deployment_id }}"
+            }
+
+      - name: Store Stack Information
+        run: |
+          mkdir -p deployment-info
+          cat > deployment-info/${{ matrix.region }}.json << EOF
+          {
+            "region": "${{ matrix.region }}",
+            "stacks": {
+              "vpc": "myapp-vpc-${{ matrix.region }}",
+              "security": "myapp-security-${{ matrix.region }}",
+              "database": "myapp-database-${{ matrix.region }}",
+              "application": "myapp-application-${{ matrix.region }}"
+            },
+            "deployment_id": "${{ needs.prepare.outputs.deployment_id }}",
+            "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          }
+          EOF
+
+      - name: Upload Deployment Info
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployment-info-${{ matrix.region }}
+          path: deployment-info/
+
+  test-deployment:
+    name: Test Deployment
+    runs-on: ubuntu-latest
+    needs: [prepare, deploy-regional]
+    if: github.event.inputs.skip_tests != 'true'
+    strategy:
+      matrix:
+        region: ${{ fromJson(needs.prepare.outputs.regions) }}
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ matrix.region }}
+
+      - name: Download Deployment Info
+        uses: actions/download-artifact@v4
+        with:
+          name: deployment-info-${{ matrix.region }}
+          path: deployment-info/
+
+      - name: Run Integration Tests
+        run: |
+          # Load deployment information
+          DEPLOYMENT_INFO=$(cat deployment-info/${{ matrix.region }}.json)
+          
+          # Extract stack names
+          VPC_STACK=$(echo "$DEPLOYMENT_INFO" | jq -r '.stacks.vpc')
+          APP_STACK=$(echo "$DEPLOYMENT_INFO" | jq -r '.stacks.application')
+          
+          # Test VPC connectivity
+          echo "Testing VPC stack: $VPC_STACK"
+          VPC_ID=$(aws cloudformation describe-stacks --stack-name "$VPC_STACK" \
+            --query 'Stacks[0].Outputs[?OutputKey==`VpcId`].OutputValue' --output text)
+          
+          if [ -z "$VPC_ID" ] || [ "$VPC_ID" == "None" ]; then
+            echo "❌ VPC ID not found in stack outputs"
+            exit 1
+          fi
+          
+          echo "✅ VPC created successfully: $VPC_ID"
+          
+          # Test application endpoints
+          echo "Testing application stack: $APP_STACK"
+          ALB_DNS=$(aws cloudformation describe-stacks --stack-name "$APP_STACK" \
+            --query 'Stacks[0].Outputs[?OutputKey==`LoadBalancerDNS`].OutputValue' --output text)
+          
+          if [ -n "$ALB_DNS" ] && [ "$ALB_DNS" != "None" ]; then
+            echo "Testing application endpoint: $ALB_DNS"
+            # Wait for ALB to be ready
+            sleep 60
+            
+            # Test health endpoint
+            if curl -f -s "http://$ALB_DNS/health" > /dev/null; then
+              echo "✅ Application health check passed"
+            else
+              echo "⚠️ Application health check failed (may still be starting up)"
+            fi
+          fi
+
+      - name: Run Security Tests
+        run: |
+          echo "Running security validation tests..."
+          
+          # Test security group rules
+          SECURITY_STACK="myapp-security-${{ matrix.region }}"
+          
+          # Check that SSH is not open to 0.0.0.0/0
+          aws ec2 describe-security-groups \
+            --filters "Name=tag:aws:cloudformation:stack-name,Values=$SECURITY_STACK" \
+            --query 'SecurityGroups[*].IpPermissions[?FromPort==`22` && IpRanges[?CidrIp==`0.0.0.0/0`]]' \
+            --output text | if grep -q .; then
+            echo "❌ Security issue: SSH port 22 is open to 0.0.0.0/0"
+            exit 1
+          else
+            echo "✅ SSH access properly restricted"
+          fi
+
+  notify-success:
+    name: Notify Success
+    runs-on: ubuntu-latest
+    needs: [prepare, deploy-regional, test-deployment]
+    if: success()
+    
+    steps:
+      - name: Notify Success
+        run: |
+          curl -X POST -H 'Content-type: application/json' \
+            --data "{\"text\":\"✅ Deployment ${{ needs.prepare.outputs.deployment_id }} completed successfully across all regions!\"}" \
+            $SLACK_WEBHOOK_URL
+
+  rollback:
+    name: Rollback on Failure
+    runs-on: ubuntu-latest
+    needs: [prepare, deploy-regional, test-deployment]
+    if: failure() && github.event.inputs.rollback_on_failure == 'true'
+    strategy:
+      matrix:
+        region: ${{ fromJson(needs.prepare.outputs.regions) }}
+    
+    steps:
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ matrix.region }}
+
+      - name: Rollback Stacks
+        run: |
+          echo "Rolling back stacks in ${{ matrix.region }}..."
+          
+          # List of stacks to rollback (in reverse dependency order)
+          STACKS=(
+            "myapp-application-${{ matrix.region }}"
+            "myapp-database-${{ matrix.region }}"
+            "myapp-security-${{ matrix.region }}"
+            "myapp-vpc-${{ matrix.region }}"
+          )
+          
+          for stack in "${STACKS[@]}"; do
+            echo "Checking stack: $stack"
+            
+            # Check if stack exists and is in a failed state
+            STACK_STATUS=$(aws cloudformation describe-stacks --stack-name "$stack" \
+              --query 'Stacks[0].StackStatus' --output text 2>/dev/null || echo "NOT_FOUND")
+            
+            case "$STACK_STATUS" in
+              "CREATE_FAILED"|"UPDATE_FAILED"|"UPDATE_ROLLBACK_FAILED")
+                echo "Deleting failed stack: $stack"
+                aws cloudformation delete-stack --stack-name "$stack"
+                aws cloudformation wait stack-delete-complete --stack-name "$stack"
+                ;;
+              "UPDATE_ROLLBACK_COMPLETE")
+                echo "Stack already rolled back: $stack"
+                ;;
+              "CREATE_COMPLETE"|"UPDATE_COMPLETE")
+                echo "Stack is healthy, no rollback needed: $stack"
+                ;;
+              "NOT_FOUND")
+                echo "Stack not found: $stack"
+                ;;
+              *)
+                echo "Stack in state $STACK_STATUS: $stack"
+                ;;
+            esac
+          done
+
+      - name: Notify Rollback
+        run: |
+          curl -X POST -H 'Content-type: application/json' \
+            --data "{\"text\":\"🔄 Rollback completed for ${{ matrix.region }} due to deployment failure\"}" \
+            $SLACK_WEBHOOK_URL
+
+  notify-failure:
+    name: Notify Failure
+    runs-on: ubuntu-latest
+    needs: [prepare, deploy-regional, test-deployment]
+    if: failure()
+    
+    steps:
+      - name: Notify Failure
+        run: |
+          curl -X POST -H 'Content-type: application/json' \
+            --data "{\"text\":\"❌ Deployment ${{ needs.prepare.outputs.deployment_id }} failed! Check the workflow logs for details.\"}" \
+            $SLACK_WEBHOOK_URL

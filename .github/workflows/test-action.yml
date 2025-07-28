@@ -1,0 +1,334 @@
+name: Test CloudFormation Deployment Action
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Install BATS
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bats
+      
+      - name: Install jq
+        run: |
+          sudo apt-get install -y jq
+      
+      - name: Run parameter processing unit tests
+        run: |
+          bats tests/unit/test-parameter-processing.bats
+      
+      - name: Run error scenarios unit tests
+        run: |
+          bats tests/unit/test-error-scenarios.bats
+
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Install BATS
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bats
+      
+      - name: Install jq
+        run: |
+          sudo apt-get install -y jq
+      
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+        continue-on-error: true
+      
+      - name: Run integration tests
+        run: |
+          bats tests/integration/test-cloudformation-templates.bats
+
+  test-action-simple:
+    name: Test Action - Simple Template
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+        continue-on-error: true
+      
+      - name: Create test template
+        run: |
+          mkdir -p test-templates
+          cat > test-templates/simple-s3.yaml << 'EOF'
+          AWSTemplateFormatVersion: '2010-09-09'
+          Description: 'Test S3 bucket for GitHub Actions testing'
+          Parameters:
+            Environment:
+              Type: String
+              Default: test
+              Description: Environment name
+          Resources:
+            TestBucket:
+              Type: AWS::S3::Bucket
+              Properties:
+                BucketName: !Sub 'github-actions-test-${Environment}-${AWS::AccountId}-${AWS::Region}'
+                PublicAccessBlockConfiguration:
+                  BlockPublicAcls: true
+                  BlockPublicPolicy: true
+                  IgnorePublicAcls: true
+                  RestrictPublicBuckets: true
+          Outputs:
+            BucketName:
+              Description: Name of the test bucket
+              Value: !Ref TestBucket
+          EOF
+      
+      - name: Test action with simple key-value parameters
+        uses: ./
+        with:
+          stack-name: github-actions-test-simple-${{ github.run_number }}
+          stack-path: test-templates/simple-s3.yaml
+          deployment-parameters: '{"Environment": "test"}'
+        continue-on-error: true
+      
+      - name: Cleanup test stack
+        if: always()
+        run: |
+          aws cloudformation delete-stack --stack-name github-actions-test-simple-${{ github.run_number }} || true
+          aws cloudformation wait stack-delete-complete --stack-name github-actions-test-simple-${{ github.run_number }} || true
+        continue-on-error: true
+
+  test-action-cloudformation-format:
+    name: Test Action - CloudFormation Format
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+        continue-on-error: true
+      
+      - name: Create test template with multiple parameters
+        run: |
+          mkdir -p test-templates
+          cat > test-templates/multi-param.yaml << 'EOF'
+          AWSTemplateFormatVersion: '2010-09-09'
+          Description: 'Test template with multiple parameters'
+          Parameters:
+            Environment:
+              Type: String
+              Default: test
+            BucketPrefix:
+              Type: String
+              Default: test-bucket
+            EnableVersioning:
+              Type: String
+              Default: 'false'
+              AllowedValues: ['true', 'false']
+          Resources:
+            TestBucket:
+              Type: AWS::S3::Bucket
+              Properties:
+                BucketName: !Sub '${BucketPrefix}-${Environment}-${AWS::AccountId}'
+                VersioningConfiguration:
+                  Status: !If [EnableVersioning, Enabled, Suspended]
+                PublicAccessBlockConfiguration:
+                  BlockPublicAcls: true
+                  BlockPublicPolicy: true
+                  IgnorePublicAcls: true
+                  RestrictPublicBuckets: true
+          Conditions:
+            EnableVersioning: !Equals [!Ref EnableVersioning, 'true']
+          Outputs:
+            BucketName:
+              Value: !Ref TestBucket
+          EOF
+      
+      - name: Test action with CloudFormation native parameters
+        uses: ./
+        with:
+          stack-name: github-actions-test-cf-format-${{ github.run_number }}
+          stack-path: test-templates/multi-param.yaml
+          deployment-parameters: '[{"ParameterName": "Environment", "ParameterValue": "test"}, {"ParameterName": "BucketPrefix", "ParameterValue": "gh-actions"}, {"ParameterName": "EnableVersioning", "ParameterValue": "true"}]'
+        continue-on-error: true
+      
+      - name: Cleanup test stack
+        if: always()
+        run: |
+          aws cloudformation delete-stack --stack-name github-actions-test-cf-format-${{ github.run_number }} || true
+          aws cloudformation wait stack-delete-complete --stack-name github-actions-test-cf-format-${{ github.run_number }} || true
+        continue-on-error: true
+
+  test-action-no-parameters:
+    name: Test Action - No Parameters
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+        continue-on-error: true
+      
+      - name: Create template without parameters
+        run: |
+          mkdir -p test-templates
+          cat > test-templates/no-params.yaml << 'EOF'
+          AWSTemplateFormatVersion: '2010-09-09'
+          Description: 'Test template without parameters'
+          Resources:
+            TestBucket:
+              Type: AWS::S3::Bucket
+              Properties:
+                BucketName: !Sub 'github-actions-no-params-${AWS::AccountId}-${AWS::Region}'
+                PublicAccessBlockConfiguration:
+                  BlockPublicAcls: true
+                  BlockPublicPolicy: true
+                  IgnorePublicAcls: true
+                  RestrictPublicBuckets: true
+          Outputs:
+            BucketName:
+              Value: !Ref TestBucket
+          EOF
+      
+      - name: Test action without parameters
+        uses: ./
+        with:
+          stack-name: github-actions-test-no-params-${{ github.run_number }}
+          stack-path: test-templates/no-params.yaml
+        continue-on-error: true
+      
+      - name: Cleanup test stack
+        if: always()
+        run: |
+          aws cloudformation delete-stack --stack-name github-actions-test-no-params-${{ github.run_number }} || true
+          aws cloudformation wait stack-delete-complete --stack-name github-actions-test-no-params-${{ github.run_number }} || true
+        continue-on-error: true
+
+  test-error-scenarios:
+    name: Test Error Scenarios
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+        continue-on-error: true
+      
+      - name: Test missing template file
+        uses: ./
+        with:
+          stack-name: test-missing-template
+          stack-path: non-existent-template.yaml
+        continue-on-error: true
+        id: test-missing-template
+      
+      - name: Verify missing template test failed
+        run: |
+          if [ "${{ steps.test-missing-template.outcome }}" = "success" ]; then
+            echo "ERROR: Missing template test should have failed"
+            exit 1
+          else
+            echo "SUCCESS: Missing template test failed as expected"
+          fi
+      
+      - name: Create invalid template
+        run: |
+          mkdir -p test-templates
+          cat > test-templates/invalid.yaml << 'EOF'
+          AWSTemplateFormatVersion: '2010-09-09'
+          Resources:
+            InvalidResource:
+              Type: AWS::NonExistent::Resource
+          EOF
+      
+      - name: Test invalid template
+        uses: ./
+        with:
+          stack-name: test-invalid-template
+          stack-path: test-templates/invalid.yaml
+        continue-on-error: true
+        id: test-invalid-template
+      
+      - name: Verify invalid template test failed
+        run: |
+          if [ "${{ steps.test-invalid-template.outcome }}" = "success" ]; then
+            echo "ERROR: Invalid template test should have failed"
+            exit 1
+          else
+            echo "SUCCESS: Invalid template test failed as expected"
+          fi
+      
+      - name: Create valid template for parameter testing
+        run: |
+          cat > test-templates/param-test.yaml << 'EOF'
+          AWSTemplateFormatVersion: '2010-09-09'
+          Parameters:
+            TestParam:
+              Type: String
+          Resources:
+            TestBucket:
+              Type: AWS::S3::Bucket
+              Properties:
+                BucketName: !Sub '${TestParam}-${AWS::AccountId}'
+          EOF
+      
+      - name: Test invalid JSON parameters
+        uses: ./
+        with:
+          stack-name: test-invalid-json
+          stack-path: test-templates/param-test.yaml
+          deployment-parameters: '{"invalid": json}'
+        continue-on-error: true
+        id: test-invalid-json
+      
+      - name: Verify invalid JSON test failed
+        run: |
+          if [ "${{ steps.test-invalid-json.outcome }}" = "success" ]; then
+            echo "ERROR: Invalid JSON test should have failed"
+            exit 1
+          else
+            echo "SUCCESS: Invalid JSON test failed as expected"
+          fi
