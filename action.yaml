@@ -165,7 +165,7 @@ runs:
         DEPLOYMENT_STACK_NAME=$(cat /tmp/stack-name)
         DEPLOYMENT_TEMPLATE_PATH=$(cat /tmp/template-path)
         DEPLOYMENT_PARAMETERS=$(cat /tmp/deployment-parameters)
-        DEPLOYMENT_TAGS=$(cat /tmp/deployment-tags)
+        DEPLOYMENT_TAGS=$(cat /tmp/deployment-tags | tr -d '\n\r')
         
         PARAMETER_OVERRIDES=""
         
@@ -273,7 +273,7 @@ runs:
         # Process CloudFormation tags
         TAG_OVERRIDES=""
         
-        if [ -n "$DEPLOYMENT_TAGS" ] && [ "$DEPLOYMENT_TAGS" != "" ] && [ "$DEPLOYMENT_TAGS" != "null" ]; then
+        if [ -n "$DEPLOYMENT_TAGS" ] && [ "$DEPLOYMENT_TAGS" != "" ] && [ "$DEPLOYMENT_TAGS" != "null" ] && [ "$DEPLOYMENT_TAGS" != "\"null\"" ]; then
           echo "Processing deployment tags..."
           
           # Validate JSON format for tags
@@ -344,7 +344,7 @@ runs:
         DEPLOYMENT_STACK_NAME=$(cat /tmp/stack-name)
         DEPLOYMENT_TEMPLATE_PATH=$(cat /tmp/template-path)
         PARAMETER_OVERRIDES=$(cat /tmp/parameter-overrides)
-        TAG_OVERRIDES=$(cat /tmp/tag-overrides)
+        TAG_OVERRIDES=$(cat /tmp/tag-overrides | tr -d '\n\r')
         
         # Prepare deployment command
         DEPLOY_CMD="aws cloudformation deploy --template-file \"$DEPLOYMENT_TEMPLATE_PATH\" --stack-name \"$DEPLOYMENT_STACK_NAME\" --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM --no-fail-on-empty-changeset --disable-rollback"
@@ -463,7 +463,7 @@ runs:
         DEPLOYMENT_STACK_NAME=$(cat /tmp/stack-name)
         DEPLOYMENT_TEMPLATE_PATH=$(cat /tmp/template-path)
         PARAMETER_OVERRIDES=$(cat /tmp/parameter-overrides)
-        TAG_OVERRIDES=$(cat /tmp/tag-overrides)
+        TAG_OVERRIDES=$(cat /tmp/tag-overrides | tr -d '\n\r')
         DEPLOY_EXIT_CODE=$(cat /tmp/deploy-exit-code)
         
         # Display deployment summary
