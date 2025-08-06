@@ -264,6 +264,43 @@ ValidationError: Template error: instance type 't3.invalid' does not exist
 
 ## Parameter Problems
 
+### Invalid Tags Format
+
+**Error Message:**
+```
+❌ Error: cloudformation-tags must be valid JSON
+JSON validation error: parse error: Expected separator ':' at line 2, column 15
+```
+
+**Causes:**
+- Malformed JSON syntax in tags
+- Missing quotes around tag keys or values
+- Trailing commas in JSON
+- Unescaped special characters
+
+**Solutions:**
+1. **Validate JSON**: Use an online JSON validator to check syntax
+2. **Check format**: Ensure tags are in key-value object format
+3. **Remove trailing commas**: JSON doesn't allow trailing commas
+4. **Escape special characters**: Use proper escaping for quotes and backslashes
+
+**Example Fix:**
+```yaml
+# Wrong - trailing comma and unquoted key
+cloudformation-tags: |
+  {
+    Environment: "production",
+    "Project": "myapp",
+  }
+
+# Correct
+cloudformation-tags: |
+  {
+    "Environment": "production",
+    "Project": "myapp"
+  }
+```
+
 ### Parameter Type Mismatch
 
 **Error Message:**
@@ -425,6 +462,51 @@ When reporting issues, please include:
 3. CloudFormation template (if relevant)
 4. Parameter values (sanitized)
 5. AWS region and account information (if relevant)
+
+## Rollback Behavior
+
+### Understanding Disabled Rollback
+
+This action uses the `--disable-rollback` flag, which changes the default CloudFormation behavior:
+
+**Default CloudFormation Behavior:**
+- On failure, CloudFormation automatically rolls back changes
+- Failed resources are deleted, leaving the stack in a clean state
+- Harder to debug what went wrong
+
+**With Disabled Rollback:**
+- Failed stacks remain in `CREATE_FAILED` or `UPDATE_FAILED` state
+- Failed resources remain visible for debugging
+- Manual cleanup required before retrying
+
+### Working with Failed Stacks
+
+**When a deployment fails:**
+
+1. **Examine the failed resources:**
+```bash
+aws cloudformation describe-stack-events --stack-name my-failed-stack \
+  --query 'StackEvents[?ResourceStatus==`CREATE_FAILED`]'
+```
+
+2. **Check stack status:**
+```bash
+aws cloudformation describe-stacks --stack-name my-failed-stack \
+  --query 'Stacks[0].StackStatus'
+```
+
+3. **Delete the failed stack before retrying:**
+```bash
+aws cloudformation delete-stack --stack-name my-failed-stack
+aws cloudformation wait stack-delete-complete --stack-name my-failed-stack
+```
+
+### Benefits of Disabled Rollback
+
+- **Faster Failures**: No time spent on rollback operations
+- **Better Debugging**: Failed resources remain for inspection
+- **Clear Error States**: Easier to identify what went wrong
+- **Resource Inspection**: Can examine partially created resources
 
 ## Prevention Tips
 

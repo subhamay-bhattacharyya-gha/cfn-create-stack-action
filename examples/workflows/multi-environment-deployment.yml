@@ -96,6 +96,13 @@ jobs:
               "VpcId": "${{ vars.VPC_ID }}",
               "SubnetIds": "${{ vars.SUBNET_IDS }}"
             }
+          cloudformation-tags: |
+            {
+              "Environment": "${{ needs.determine-environment.outputs.environment }}",
+              "Project": "myapp",
+              "ManagedBy": "GitHub Actions",
+              "Repository": "${{ github.repository }}"
+            }
 
       - name: Deploy Database Stack
         uses: your-org/cloudformation-deployment-action@v1
@@ -110,6 +117,13 @@ jobs:
               {"ParameterName": "MasterUsername", "ParameterValue": "admin"},
               {"ParameterName": "VpcId", "ParameterValue": "${{ vars.VPC_ID }}"}
             ]
+          cloudformation-tags: |
+            {
+              "Environment": "${{ needs.determine-environment.outputs.environment }}",
+              "Component": "database",
+              "Project": "myapp",
+              "ManagedBy": "GitHub Actions"
+            }
 
   notify:
     name: Notify Deployment Status

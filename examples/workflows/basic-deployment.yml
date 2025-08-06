@@ -35,6 +35,12 @@ jobs:
         with:
           stack-name: my-basic-stack
           template-path: infrastructure/basic-stack.yaml
+          cloudformation-tags: |
+            {
+              "Environment": "production",
+              "ManagedBy": "GitHub Actions",
+              "Repository": "${{ github.repository }}"
+            }
 
       - name: Display Deployment Summary
         run: |

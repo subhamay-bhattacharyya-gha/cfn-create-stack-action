@@ -127,6 +127,14 @@ jobs:
               "ApplicationName": "myapp",
               "DeploymentId": "${{ needs.prepare.outputs.deployment_id }}"
             }
+          cloudformation-tags: |
+            {
+              "Environment": "production",
+              "Component": "iam",
+              "Project": "myapp",
+              "Scope": "global",
+              "ManagedBy": "GitHub Actions"
+            }
 
       - name: Deploy Route53 Stack
         uses: your-org/cloudformation-deployment-action@v1
@@ -137,6 +145,14 @@ jobs:
             {
               "DomainName": "${{ vars.DOMAIN_NAME }}",
               "Environment": "production"
+            }
+          cloudformation-tags: |
+            {
+              "Environment": "production",
+              "Component": "dns",
+              "Project": "myapp",
+              "Scope": "global",
+              "ManagedBy": "GitHub Actions"
             }
 
   deploy-regional:
@@ -172,6 +188,14 @@ jobs:
               "Region": "${{ matrix.region }}",
               "VpcCidr": "${{ matrix.region == 'us-east-1' && '10.0.0.0/16' || '10.1.0.0/16' }}",
               "DeploymentId": "${{ needs.prepare.outputs.deployment_id }}"
+            }
+          cloudformation-tags: |
+            {
+              "Environment": "production",
+              "Component": "networking",
+              "Project": "myapp",
+              "Region": "${{ matrix.region }}",
+              "ManagedBy": "GitHub Actions"
             }
 
       - name: Deploy Security Stack

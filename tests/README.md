@@ -25,8 +25,9 @@ tests/
 **Parameter Processing Tests** (`tests/unit/test-parameter-processing.bats`)
 - Tests both JSON parameter formats (simple key-value and CloudFormation native)
 - Validates parameter conversion logic
+- Tests CloudFormation tags processing and validation
 - Tests edge cases (empty parameters, special characters, etc.)
-- Error handling for invalid JSON and malformed parameters
+- Error handling for invalid JSON and malformed parameters/tags
 
 **Error Scenarios Tests** (`tests/unit/test-error-scenarios.bats`)
 - System dependency validation (AWS CLI, jq)
@@ -151,8 +152,9 @@ The test suite covers all requirements from the specification:
 - ✅ Null parameters
 - ✅ Simple key-value JSON format
 - ✅ CloudFormation native array format
+- ✅ CloudFormation tags processing
 - ✅ Invalid JSON handling
-- ✅ Malformed CloudFormation parameters
+- ✅ Malformed CloudFormation parameters/tags
 - ✅ Special characters in parameter values
 - ✅ Parameters with spaces
 - ✅ Empty arrays and objects

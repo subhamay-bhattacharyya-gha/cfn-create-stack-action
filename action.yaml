@@ -12,6 +12,10 @@ inputs:
     description: 'CloudFormation parameters as JSON string'
     required: false
     default: 'null'
+  cloudformation-tags:
+    description: 'CloudFormation tags as JSON string (key-value pairs)'
+    required: false
+    default: 'null'
 
 runs:
   using: 'composite'
@@ -69,6 +73,7 @@ runs:
         DEPLOYMENT_STACK_NAME: ${{ inputs.stack-name }}
         DEPLOYMENT_TEMPLATE_PATH: ${{ inputs.template-path }}
         DEPLOYMENT_PARAMETERS: ${{ inputs.deployment-parameters }}
+        DEPLOYMENT_TAGS: ${{ inputs.cloudformation-tags }}
       run: |
         echo "=== Input Validation ==="
         
@@ -102,6 +107,11 @@ runs:
           DEPLOYMENT_PARAMETERS=""
         fi
         
+        # Handle null/empty tags
+        if [ "$DEPLOYMENT_TAGS" = "null" ] || [ -z "$DEPLOYMENT_TAGS" ]; then
+          DEPLOYMENT_TAGS=""
+        fi
+        
         # Display validated configuration
         echo "✅ Input validation completed successfully"
         echo "Stack Name: $DEPLOYMENT_STACK_NAME"
@@ -115,10 +125,17 @@ runs:
           echo "Parameters: None provided"
         fi
         
+        if [ -n "$DEPLOYMENT_TAGS" ] && [ "$DEPLOYMENT_TAGS" != "" ]; then
+          echo "Tags: Provided ($(echo "$DEPLOYMENT_TAGS" | wc -c) characters)"
+        else
+          echo "Tags: None provided"
+        fi
+        
         # Save validated inputs to environment files for next steps
         echo "$DEPLOYMENT_STACK_NAME" > /tmp/stack-name
         echo "$DEPLOYMENT_TEMPLATE_PATH" > /tmp/template-path
         echo "$DEPLOYMENT_PARAMETERS" > /tmp/deployment-parameters
+        echo "$DEPLOYMENT_TAGS" > /tmp/deployment-tags
         
         # Template validation step
         echo ""
@@ -148,6 +165,7 @@ runs:
         DEPLOYMENT_STACK_NAME=$(cat /tmp/stack-name)
         DEPLOYMENT_TEMPLATE_PATH=$(cat /tmp/template-path)
         DEPLOYMENT_PARAMETERS=$(cat /tmp/deployment-parameters)
+        DEPLOYMENT_TAGS=$(cat /tmp/deployment-tags)
         
         PARAMETER_OVERRIDES=""
         
@@ -251,6 +269,71 @@ runs:
         # Save parameter overrides for next step
         echo "$PARAMETER_OVERRIDES" > /tmp/parameter-overrides
         echo "Parameter processing completed."
+        
+        # Process CloudFormation tags
+        TAG_OVERRIDES=""
+        
+        if [ -n "$DEPLOYMENT_TAGS" ] && [ "$DEPLOYMENT_TAGS" != "" ] && [ "$DEPLOYMENT_TAGS" != "null" ]; then
+          echo "Processing deployment tags..."
+          
+          # Validate JSON format for tags
+          TAG_VALIDATION_OUTPUT=$(echo "$DEPLOYMENT_TAGS" | jq . 2>&1)
+          TAG_VALIDATION_EXIT_CODE=$?
+          
+          if [ $TAG_VALIDATION_EXIT_CODE -ne 0 ]; then
+            echo "❌ Error: cloudformation-tags must be valid JSON (Exit Code: $TAG_VALIDATION_EXIT_CODE)"
+            TAGS_LENGTH=$(echo "$DEPLOYMENT_TAGS" | wc -c | tr -d ' ')
+            echo "Provided tags: [HIDDEN - $TAGS_LENGTH characters for security]"
+            echo ""
+            echo "JSON validation error:"
+            echo "$TAG_VALIDATION_OUTPUT"
+            echo ""
+            echo "Please ensure your tags are properly formatted JSON."
+            exit $TAG_VALIDATION_EXIT_CODE
+          fi
+          
+          # Check if it's an object (key-value format for tags)
+          if echo "$DEPLOYMENT_TAGS" | jq -e 'type == "object"' > /dev/null 2>&1; then
+            echo "Detected key-value tag format (object)"
+            
+            # Convert key-value format to tag overrides
+            # Transform: {"Environment": "prod", "Project": "myapp"} -> "Environment=prod Project=myapp"
+            TAG_CONVERSION_OUTPUT=$(echo "$DEPLOYMENT_TAGS" | jq -r 'to_entries[] | "\(.key)=\(.value)"' 2>&1)
+            TAG_CONVERSION_EXIT_CODE=$?
+            
+            if [ $TAG_CONVERSION_EXIT_CODE -ne 0 ]; then
+              echo "❌ Error: Failed to convert tags (Exit Code: $TAG_CONVERSION_EXIT_CODE)"
+              echo "Conversion error: $TAG_CONVERSION_OUTPUT"
+              exit $TAG_CONVERSION_EXIT_CODE
+            fi
+            
+            # Join multiple tags with spaces and remove trailing space
+            TAG_OVERRIDES=$(echo "$TAG_CONVERSION_OUTPUT" | tr '\n' ' ' | sed 's/ $//')
+            
+          else
+            echo "❌ Error: cloudformation-tags must be a JSON object with key-value pairs"
+            echo "Expected format: {\"key\": \"value\"}"
+            exit 1
+          fi
+          
+          # Validate that we have tag overrides
+          if [ -z "$TAG_OVERRIDES" ]; then
+            echo "⚠️  Warning: No tags extracted from provided JSON"
+            echo "Tags will be empty for deployment"
+          else
+            echo "✅ Tag processing completed successfully"
+            # Count tags for logging (avoid exposing sensitive values)
+            TAG_COUNT=$(echo "$TAG_OVERRIDES" | tr ' ' '\n' | wc -l | tr -d ' ')
+            echo "Tag overrides: $TAG_COUNT tag(s) processed (values hidden for security)"
+          fi
+          
+        else
+          echo "No tags provided - deploying stack without tags"
+        fi
+        
+        # Save tag overrides for next step
+        echo "$TAG_OVERRIDES" > /tmp/tag-overrides
+        echo "Tag processing completed."
 
     - name: Deploy CloudFormation Stack
       shell: bash
@@ -261,12 +344,17 @@ runs:
         DEPLOYMENT_STACK_NAME=$(cat /tmp/stack-name)
         DEPLOYMENT_TEMPLATE_PATH=$(cat /tmp/template-path)
         PARAMETER_OVERRIDES=$(cat /tmp/parameter-overrides)
+        TAG_OVERRIDES=$(cat /tmp/tag-overrides)
         
         # Prepare deployment command
-        DEPLOY_CMD="aws cloudformation deploy --template-file \"$DEPLOYMENT_TEMPLATE_PATH\" --stack-name \"$DEPLOYMENT_STACK_NAME\" --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM --no-fail-on-empty-changeset"
+        DEPLOY_CMD="aws cloudformation deploy --template-file \"$DEPLOYMENT_TEMPLATE_PATH\" --stack-name \"$DEPLOYMENT_STACK_NAME\" --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM --no-fail-on-empty-changeset --disable-rollback"
         
         if [ -n "$PARAMETER_OVERRIDES" ]; then
           DEPLOY_CMD="$DEPLOY_CMD --parameter-overrides $PARAMETER_OVERRIDES"
+        fi
+        
+        if [ -n "$TAG_OVERRIDES" ]; then
+          DEPLOY_CMD="$DEPLOY_CMD --tags $TAG_OVERRIDES"
         fi
         
         echo "Starting CloudFormation deployment..."
@@ -279,10 +367,18 @@ runs:
         else
           echo "Parameters: None"
         fi
+        if [ -n "$TAG_OVERRIDES" ]; then
+          # Count tags for security logging (avoid exposing sensitive values)
+          TAG_COUNT=$(echo "$TAG_OVERRIDES" | tr ' ' '\n' | wc -l | tr -d ' ')
+          echo "Tags: $TAG_COUNT tag(s) configured (values hidden for security)"
+        else
+          echo "Tags: None"
+        fi
+        echo "Rollback: Disabled on failure"
         echo ""
         
-        # Log deployment command without exposing parameter values for security
-        DEPLOY_CMD_SAFE=$(echo "$DEPLOY_CMD" | sed 's/--parameter-overrides [^[:space:]]*/--parameter-overrides [HIDDEN_FOR_SECURITY]/')
+        # Log deployment command without exposing parameter and tag values for security
+        DEPLOY_CMD_SAFE=$(echo "$DEPLOY_CMD" | sed 's/--parameter-overrides [^[:space:]]*/--parameter-overrides [HIDDEN_FOR_SECURITY]/' | sed 's/--tags [^[:space:]]*/--tags [HIDDEN_FOR_SECURITY]/')
         echo "Executing: $DEPLOY_CMD_SAFE"
         
         # Execute the command directly instead of in background
@@ -367,6 +463,7 @@ runs:
         DEPLOYMENT_STACK_NAME=$(cat /tmp/stack-name)
         DEPLOYMENT_TEMPLATE_PATH=$(cat /tmp/template-path)
         PARAMETER_OVERRIDES=$(cat /tmp/parameter-overrides)
+        TAG_OVERRIDES=$(cat /tmp/tag-overrides)
         DEPLOY_EXIT_CODE=$(cat /tmp/deploy-exit-code)
         
         # Display deployment summary
@@ -385,6 +482,16 @@ runs:
           echo "Parameter Names: $PARAM_NAMES"
         else
           echo "Parameters: None"
+        fi
+        
+        if [ -n "$TAG_OVERRIDES" ]; then
+          # Count tags for security logging (avoid exposing sensitive values)
+          TAG_COUNT=$(echo "$TAG_OVERRIDES" | tr ' ' '\n' | wc -l | tr -d ' ')
+          TAG_NAMES=$(echo "$TAG_OVERRIDES" | sed 's/=.*//g' | tr '\n' ', ')
+          echo "Tags: $TAG_COUNT tag(s) configured"
+          echo "Tag Names: $TAG_NAMES"
+        else
+          echo "Tags: None"
         fi
         
         # Get execution time
