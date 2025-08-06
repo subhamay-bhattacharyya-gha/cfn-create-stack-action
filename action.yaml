@@ -273,6 +273,12 @@ runs:
         # Process CloudFormation tags
         TAG_OVERRIDES=""
         
+        echo "Debug: Checking tag conditions..."
+        echo "Debug: DEPLOYMENT_TAGS is non-empty: $([ -n "$DEPLOYMENT_TAGS" ] && echo "true" || echo "false")"
+        echo "Debug: DEPLOYMENT_TAGS != '': $([ "$DEPLOYMENT_TAGS" != "" ] && echo "true" || echo "false")"
+        echo "Debug: DEPLOYMENT_TAGS != 'null': $([ "$DEPLOYMENT_TAGS" != "null" ] && echo "true" || echo "false")"
+        echo "Debug: DEPLOYMENT_TAGS != '\"null\"': $([ "$DEPLOYMENT_TAGS" != "\"null\"" ] && echo "true" || echo "false")"
+        
         if [ -n "$DEPLOYMENT_TAGS" ] && [ "$DEPLOYMENT_TAGS" != "" ] && [ "$DEPLOYMENT_TAGS" != "null" ] && [ "$DEPLOYMENT_TAGS" != "\"null\"" ]; then
           echo "Processing deployment tags..."
           
