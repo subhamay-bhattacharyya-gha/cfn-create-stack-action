@@ -108,8 +108,12 @@ runs:
         fi
         
         # Handle null/empty tags
+        echo "Debug: Raw DEPLOYMENT_TAGS value: '$DEPLOYMENT_TAGS'"
         if [ "$DEPLOYMENT_TAGS" = "null" ] || [ -z "$DEPLOYMENT_TAGS" ]; then
+          echo "Debug: Converting DEPLOYMENT_TAGS to empty string"
           DEPLOYMENT_TAGS=""
+        else
+          echo "Debug: DEPLOYMENT_TAGS has content: $(echo "$DEPLOYMENT_TAGS" | wc -c) characters"
         fi
         
         # Display validated configuration
@@ -125,7 +129,7 @@ runs:
           echo "Parameters: None provided"
         fi
         
-        if [ -n "$DEPLOYMENT_TAGS" ] && [ "$DEPLOYMENT_TAGS" != "" ]; then
+        if [ -n "$DEPLOYMENT_TAGS" ] && [ "$DEPLOYMENT_TAGS" != "" ] && [ "$DEPLOYMENT_TAGS" != "null" ]; then
           echo "Tags: Provided ($(echo "$DEPLOYMENT_TAGS" | wc -c) characters)"
         else
           echo "Tags: None provided"
