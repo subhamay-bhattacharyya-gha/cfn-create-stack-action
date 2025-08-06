@@ -108,8 +108,17 @@ runs:
         fi
         
         # Handle null/empty tags
-        if [ "$DEPLOYMENT_TAGS" = "null" ] || [ -z "$DEPLOYMENT_TAGS" ]; then
+        echo "Debug: Input validation - Raw DEPLOYMENT_TAGS: '$DEPLOYMENT_TAGS'"
+        echo "Debug: Input validation - DEPLOYMENT_TAGS length: $(echo -n "$DEPLOYMENT_TAGS" | wc -c)"
+        echo "Debug: Input validation - DEPLOYMENT_TAGS = 'null': $([ "$DEPLOYMENT_TAGS" = "null" ] && echo "true" || echo "false")"
+        echo "Debug: Input validation - DEPLOYMENT_TAGS is empty: $([ -z "$DEPLOYMENT_TAGS" ] && echo "true" || echo "false")"
+        
+        if [ "$DEPLOYMENT_TAGS" = "null" ] || [ -z "$DEPLOYMENT_TAGS" ] || [ "$DEPLOYMENT_TAGS" = "" ]; then
+          echo "Debug: Input validation - Converting DEPLOYMENT_TAGS to empty string"
           DEPLOYMENT_TAGS=""
+        else
+          echo "Debug: Input validation - Keeping DEPLOYMENT_TAGS as is"
+          echo "Debug: Input validation - DEPLOYMENT_TAGS first 100 chars: $(echo "$DEPLOYMENT_TAGS" | head -c 100)"
         fi
         
         # Display validated configuration
