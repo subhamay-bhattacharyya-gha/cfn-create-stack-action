@@ -174,7 +174,15 @@ runs:
         DEPLOYMENT_STACK_NAME=$(cat /tmp/stack-name)
         DEPLOYMENT_TEMPLATE_PATH=$(cat /tmp/template-path)
         DEPLOYMENT_PARAMETERS=$(cat /tmp/deployment-parameters)
+        
+        echo "Debug: Contents of /tmp/deployment-tags file:"
+        echo "Debug: File size: $(wc -c < /tmp/deployment-tags) bytes"
+        echo "Debug: File contents (first 200 chars): $(head -c 200 /tmp/deployment-tags)"
+        
         DEPLOYMENT_TAGS=$(cat /tmp/deployment-tags | tr -d '\n\r')
+        
+        echo "Debug: DEPLOYMENT_TAGS after loading from file: '$DEPLOYMENT_TAGS'"
+        echo "Debug: DEPLOYMENT_TAGS length after loading: $(echo -n "$DEPLOYMENT_TAGS" | wc -c)"
         
         PARAMETER_OVERRIDES=""
         
