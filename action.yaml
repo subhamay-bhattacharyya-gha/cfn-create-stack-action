@@ -167,6 +167,8 @@ runs:
 
     - name: Process Parameters
       shell: bash
+      env:
+        DEPLOYMENT_TAGS_INPUT: ${{ inputs.cloudformation-tags }}
       run: |
         echo "=== Parameter Processing ==="
         
@@ -179,10 +181,23 @@ runs:
         echo "Debug: File size: $(wc -c < /tmp/deployment-tags) bytes"
         echo "Debug: File contents (first 200 chars): $(head -c 200 /tmp/deployment-tags)"
         
-        DEPLOYMENT_TAGS=$(cat /tmp/deployment-tags | tr -d '\n\r')
+        # Try to load from temp file first, but fallback to direct input if empty
+        DEPLOYMENT_TAGS_FROM_FILE=$(cat /tmp/deployment-tags | tr -d '\n\r')
         
-        echo "Debug: DEPLOYMENT_TAGS after loading from file: '$DEPLOYMENT_TAGS'"
-        echo "Debug: DEPLOYMENT_TAGS length after loading: $(echo -n "$DEPLOYMENT_TAGS" | wc -c)"
+        echo "Debug: DEPLOYMENT_TAGS from file: '$DEPLOYMENT_TAGS_FROM_FILE'"
+        echo "Debug: DEPLOYMENT_TAGS_INPUT from env: '$DEPLOYMENT_TAGS_INPUT'"
+        
+        # Use direct input if file is empty
+        if [ -z "$DEPLOYMENT_TAGS_FROM_FILE" ] && [ -n "$DEPLOYMENT_TAGS_INPUT" ] && [ "$DEPLOYMENT_TAGS_INPUT" != "null" ]; then
+          echo "Debug: Using DEPLOYMENT_TAGS_INPUT as fallback"
+          DEPLOYMENT_TAGS="$DEPLOYMENT_TAGS_INPUT"
+        else
+          echo "Debug: Using DEPLOYMENT_TAGS from file"
+          DEPLOYMENT_TAGS="$DEPLOYMENT_TAGS_FROM_FILE"
+        fi
+        
+        echo "Debug: Final DEPLOYMENT_TAGS: '$DEPLOYMENT_TAGS'"
+        echo "Debug: Final DEPLOYMENT_TAGS length: $(echo -n "$DEPLOYMENT_TAGS" | wc -c)"
         
         PARAMETER_OVERRIDES=""
         
