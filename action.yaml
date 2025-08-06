@@ -108,12 +108,8 @@ runs:
         fi
         
         # Handle null/empty tags
-        echo "Debug: Raw DEPLOYMENT_TAGS value: '$DEPLOYMENT_TAGS'"
         if [ "$DEPLOYMENT_TAGS" = "null" ] || [ -z "$DEPLOYMENT_TAGS" ]; then
-          echo "Debug: Converting DEPLOYMENT_TAGS to empty string"
           DEPLOYMENT_TAGS=""
-        else
-          echo "Debug: DEPLOYMENT_TAGS has content: $(echo "$DEPLOYMENT_TAGS" | wc -c) characters"
         fi
         
         # Display validated configuration
@@ -296,8 +292,33 @@ runs:
             exit $TAG_VALIDATION_EXIT_CODE
           fi
           
-          # Check if it's an object (key-value format for tags)
-          if echo "$DEPLOYMENT_TAGS" | jq -e 'type == "object"' > /dev/null 2>&1; then
+          # Check if it's an array (CloudFormation native tag format)
+          if echo "$DEPLOYMENT_TAGS" | jq -e 'type == "array"' > /dev/null 2>&1; then
+            echo "Detected CloudFormation native tag format (array)"
+            
+            # Validate array contains objects with Key and Value
+            if ! echo "$DEPLOYMENT_TAGS" | jq -e 'all(type == "object" and has("Key") and has("Value"))' > /dev/null 2>&1; then
+              echo "❌ Error: CloudFormation tag array must contain objects with 'Key' and 'Value' keys"
+              echo "Expected format: [{\"Key\": \"key\", \"Value\": \"value\"}]"
+              exit 1
+            fi
+            
+            # Convert CloudFormation native format to tag overrides
+            # Transform: [{"Key": "Environment", "Value": "prod"}] -> "Environment=prod"
+            TAG_CONVERSION_OUTPUT=$(echo "$DEPLOYMENT_TAGS" | jq -r '.[] | "\(.Key)=\(.Value)"' 2>&1)
+            TAG_CONVERSION_EXIT_CODE=$?
+            
+            if [ $TAG_CONVERSION_EXIT_CODE -ne 0 ]; then
+              echo "❌ Error: Failed to convert CloudFormation tags (Exit Code: $TAG_CONVERSION_EXIT_CODE)"
+              echo "Conversion error: $TAG_CONVERSION_OUTPUT"
+              exit $TAG_CONVERSION_EXIT_CODE
+            fi
+            
+            # Join multiple tags with spaces and remove trailing space
+            TAG_OVERRIDES=$(echo "$TAG_CONVERSION_OUTPUT" | tr '\n' ' ' | sed 's/ $//')
+            
+          # Check if it's an object (simple key-value format for tags)
+          elif echo "$DEPLOYMENT_TAGS" | jq -e 'type == "object"' > /dev/null 2>&1; then
             echo "Detected key-value tag format (object)"
             
             # Convert key-value format to tag overrides
@@ -315,8 +336,9 @@ runs:
             TAG_OVERRIDES=$(echo "$TAG_CONVERSION_OUTPUT" | tr '\n' ' ' | sed 's/ $//')
             
           else
-            echo "❌ Error: cloudformation-tags must be a JSON object with key-value pairs"
-            echo "Expected format: {\"key\": \"value\"}"
+            echo "❌ Error: cloudformation-tags must be either an array of CloudFormation tag objects or a simple key-value object"
+            echo "CloudFormation format: [{\"Key\": \"key\", \"Value\": \"value\"}]"
+            echo "Simple format: {\"key\": \"value\"}"
             exit 1
           fi
           

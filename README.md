@@ -150,8 +150,9 @@ deployment-parameters: |
 
 ### Tag Usage
 
-You can apply tags to your CloudFormation stack using the `cloudformation-tags` input:
+You can apply tags to your CloudFormation stack using the `cloudformation-tags` input in two formats:
 
+#### Simple Key-Value Format
 ```yaml
 cloudformation-tags: |
   {
@@ -160,6 +161,17 @@ cloudformation-tags: |
     "Owner": "team-alpha",
     "CostCenter": "engineering"
   }
+```
+
+#### CloudFormation Native Format
+```yaml
+cloudformation-tags: |
+  [
+    {"Key": "Environment", "Value": "production"},
+    {"Key": "Project", "Value": "myapp"},
+    {"Key": "Owner", "Value": "team-alpha"},
+    {"Key": "CostCenter", "Value": "engineering"}
+  ]
 ```
 
 ### Common Use Cases
