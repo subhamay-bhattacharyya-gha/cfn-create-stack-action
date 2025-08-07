@@ -1,3 +1,13 @@
+## [1.0.1](https://github.com/subhamay-bhattacharyya-gha/cfn-create-stack-action/compare/v1.0.0...v1.0.1) (2025-08-07)
+
+
+### Bug Fixes
+
+* add fallback mechanism for tag processing when temp file is empty ([03a2003](https://github.com/subhamay-bhattacharyya-gha/cfn-create-stack-action/commit/03a200382d71dca0ceaffa9204f3fe8c2b80a36d))
+* add support for CloudFormation native tag format ([82f6f7d](https://github.com/subhamay-bhattacharyya-gha/cfn-create-stack-action/commit/82f6f7da67a961c1bec88252c98f2d948682cbb7))
+* properly quote CloudFormation tag values to handle spaces and special characters ([40505ef](https://github.com/subhamay-bhattacharyya-gha/cfn-create-stack-action/commit/40505ef4f1d01a2e5177b8f8a0cc89744ac14a90))
+* resolve issue with tags showing as not provided when they are passed ([8bc3eb2](https://github.com/subhamay-bhattacharyya-gha/cfn-create-stack-action/commit/8bc3eb233dd9ea572afb7532a2a21e45c6eb4582))
+
 # 1.0.0 (2025-07-28)
 
 
