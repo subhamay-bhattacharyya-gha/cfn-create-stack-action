@@ -9,9 +9,12 @@ A reusable GitHub Action that automates the deployment of AWS CloudFormation sta
 - 🚀 **Easy CloudFormation Deployment**: Deploy stacks with a simple, standardized interface
 - 📊 **Real-time Monitoring**: Track deployment progress with live stack event monitoring
 - 🔧 **Flexible Parameter Support**: Accepts both simple JSON and CloudFormation native parameter formats
+- 🏷️ **Smart Stack Tagging**: Apply tags with automatic value quoting for spaces and special characters
 - 🛡️ **Comprehensive Error Handling**: Clear error messages and proper exit codes for CI/CD integration
 - 🔐 **Security-First**: Automatic IAM capability handling with secure parameter processing
 - ✅ **Template Validation**: Pre-deployment template validation to catch errors early
+- 🚫 **No Rollback on Failure**: Disabled rollback allows for easier debugging of failed deployments
+- 🔄 **Robust Tag Processing**: Fallback mechanisms ensure tags are processed even with temp file issues
 - 📋 **Detailed Output**: Stack outputs and deployment summaries for troubleshooting
 
 ---
@@ -23,6 +26,7 @@ A reusable GitHub Action that automates the deployment of AWS CloudFormation sta
 | `stack-name` | Name of the CloudFormation stack to deploy | Yes | — |
 | `template-path` | Path to the CloudFormation template file (relative to repository root) | Yes | — |
 | `deployment-parameters` | CloudFormation parameters as JSON string (supports multiple formats) | No | `null` |
+| `cloudformation-tags` | CloudFormation tags as JSON string (key-value pairs) | No | `null` |
 
 ### Parameter Formats
 
@@ -121,6 +125,7 @@ The action accepts the following inputs:
 - **`stack-name`** (required): The name for your CloudFormation stack
 - **`template-path`** (required): Path to your CloudFormation template file
 - **`deployment-parameters`** (optional): Parameters for your template in JSON format
+- **`cloudformation-tags`** (optional): Tags for your CloudFormation stack in JSON format
 
 ### Parameter Usage
 
@@ -144,6 +149,34 @@ deployment-parameters: |
   ]
 ```
 
+### Tag Usage
+
+You can apply tags to your CloudFormation stack using the `cloudformation-tags` input in two formats:
+
+#### Simple Key-Value Format
+```yaml
+cloudformation-tags: |
+  {
+    "Environment": "production",
+    "Project": "myapp",
+    "Owner": "team-alpha",
+    "CostCenter": "engineering"
+  }
+```
+
+#### CloudFormation Native Format (Recommended)
+```yaml
+cloudformation-tags: |
+  [
+    {"Key": "Environment", "Value": "production"},
+    {"Key": "Project", "Value": "myapp"},
+    {"Key": "Owner", "Value": "team-alpha"},
+    {"Key": "CostCenter", "Value": "engineering"}
+  ]
+```
+
+**Note**: Tag values containing spaces and special characters are automatically quoted for proper AWS CLI handling.
+
 ### Common Use Cases
 
 #### 1. Environment-based Deployment
@@ -158,6 +191,12 @@ deployment-parameters: |
         "Environment": "${{ github.ref_name }}",
         "InstanceType": "${{ github.ref_name == 'main' && 't3.medium' || 't3.micro' }}"
       }
+    cloudformation-tags: |
+      {
+        "Environment": "${{ github.ref_name }}",
+        "Project": "myapp",
+        "DeployedBy": "GitHub Actions"
+      }
 ```
 
 #### 2. Using GitHub Secrets
@@ -171,6 +210,12 @@ deployment-parameters: |
       {
         "DatabasePassword": "${{ secrets.DB_PASSWORD }}",
         "ApiKey": "${{ secrets.API_KEY }}"
+      }
+    cloudformation-tags: |
+      {
+        "Environment": "production",
+        "Security": "high",
+        "Owner": "${{ github.actor }}"
       }
 ```
 
@@ -189,6 +234,12 @@ steps:
       deployment-parameters: |
         {
           "Environment": "${{ matrix.environment }}"
+        }
+      cloudformation-tags: |
+        {
+          "Environment": "${{ matrix.environment }}",
+          "Project": "myapp",
+          "ManagedBy": "GitHubActions"
         }
 ```
 
@@ -318,6 +369,32 @@ jobs:
           stack-name: myapp-${{ github.ref_name }}
           template-path: infrastructure/app.yaml
           deployment-parameters: ${{ steps.params.outputs.parameters }}
+```
+
+### With CloudFormation Tags
+
+```yaml
+      - name: Deploy with Tags
+        uses: subhamay-bhattacharyya-gha/cfn-create-stack-action@main
+        with:
+          stack-name: tagged-stack
+          template-path: infrastructure/app.yaml
+          deployment-parameters: |
+            {
+              "Environment": "production",
+              "InstanceType": "t3.medium"
+            }
+          cloudformation-tags: |
+            {
+              "Environment": "production",
+              "Project": "web-application",
+              "Owner": "platform-team",
+              "CostCenter": "engineering",
+              "ManagedBy": "GitHub Actions",
+              "Repository": "${{ github.repository }}",
+              "Branch": "${{ github.ref_name }}",
+              "CommitSha": "${{ github.sha }}"
+            }
 ```
 
 ---
@@ -451,6 +528,20 @@ All templates are validated before deployment using `aws cloudformation validate
 
 ### Idempotent Deployments
 The action uses `--no-fail-on-empty-changeset` to support idempotent deployments where no changes are detected.
+
+### Rollback Behavior
+The action uses `--disable-rollback` flag, which means:
+- **On Failure**: Failed stacks remain in a failed state instead of rolling back
+- **Debugging**: Easier to troubleshoot issues by examining the failed resources
+- **Manual Cleanup**: Failed stacks need to be manually deleted before retrying
+- **Faster Failures**: No time spent on rollback operations during failures
+
+### Tag Processing
+The action includes robust tag processing with the following features:
+- **Automatic Quoting**: Tag values with spaces are automatically quoted for AWS CLI compatibility
+- **Format Support**: Accepts both simple key-value objects and CloudFormation native array formats
+- **Fallback Mechanism**: Uses direct input if temporary file processing fails
+- **Special Character Handling**: Properly escapes quotes and special characters in tag values
 
 ---
 

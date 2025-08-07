@@ -101,6 +101,13 @@ jobs:
               "PublicSubnetCidr": "10.0.1.0/24",
               "PrivateSubnetCidr": "10.0.2.0/24"
             }
+          cloudformation-tags: |
+            {
+              "Environment": "${{ github.ref_name }}",
+              "Component": "networking",
+              "Project": "myapp",
+              "ManagedBy": "GitHub Actions"
+            }
 
   deploy-database:
     name: Deploy Database Stack
