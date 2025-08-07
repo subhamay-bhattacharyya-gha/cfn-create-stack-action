@@ -342,8 +342,9 @@ runs:
             fi
             
             # Convert CloudFormation native format to tag overrides
-            # Transform: [{"Key": "Environment", "Value": "prod"}] -> "Environment=prod"
-            TAG_CONVERSION_OUTPUT=$(echo "$DEPLOYMENT_TAGS" | jq -r '.[] | "\(.Key)=\(.Value)"' 2>&1)
+            # Transform: [{"Key": "Environment", "Value": "prod"}] -> "Environment=\"prod\""
+            # Always quote values to handle spaces and special characters
+            TAG_CONVERSION_OUTPUT=$(echo "$DEPLOYMENT_TAGS" | jq -r '.[] | "\(.Key)=\"\(.Value)\""' 2>&1)
             TAG_CONVERSION_EXIT_CODE=$?
             
             if [ $TAG_CONVERSION_EXIT_CODE -ne 0 ]; then
@@ -360,8 +361,9 @@ runs:
             echo "Detected key-value tag format (object)"
             
             # Convert key-value format to tag overrides
-            # Transform: {"Environment": "prod", "Project": "myapp"} -> "Environment=prod Project=myapp"
-            TAG_CONVERSION_OUTPUT=$(echo "$DEPLOYMENT_TAGS" | jq -r 'to_entries[] | "\(.key)=\(.value)"' 2>&1)
+            # Transform: {"Environment": "prod", "Project": "myapp"} -> "Environment=\"prod\" Project=\"myapp\""
+            # Always quote values to handle spaces and special characters
+            TAG_CONVERSION_OUTPUT=$(echo "$DEPLOYMENT_TAGS" | jq -r 'to_entries[] | "\(.key)=\"\(.value)\""' 2>&1)
             TAG_CONVERSION_EXIT_CODE=$?
             
             if [ $TAG_CONVERSION_EXIT_CODE -ne 0 ]; then
