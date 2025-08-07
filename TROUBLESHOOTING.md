@@ -301,6 +301,33 @@ cloudformation-tags: |
   }
 ```
 
+### Tag Value Formatting Issues
+
+**Error Message:**
+```
+['value'] value passed to --tags must be of format Key=Value
+```
+
+**Causes:**
+- Tag values containing spaces or special characters
+- Improper escaping of tag values
+- Multi-word descriptions or complex values
+
+**Solutions:**
+1. **Use proper JSON format**: The action automatically handles quoting
+2. **Avoid problematic characters**: Be cautious with quotes, brackets, and special symbols
+3. **Test with simple values first**: Verify basic functionality before using complex descriptions
+
+**Example:**
+```yaml
+# This works - action handles spaces automatically
+cloudformation-tags: |
+  [
+    {"Key": "Description", "Value": "A web application for user management"},
+    {"Key": "Environment", "Value": "production"}
+  ]
+```
+
 ### Parameter Type Mismatch
 
 **Error Message:**

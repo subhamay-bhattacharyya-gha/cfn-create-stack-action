@@ -108,17 +108,8 @@ runs:
         fi
         
         # Handle null/empty tags
-        echo "Debug: Input validation - Raw DEPLOYMENT_TAGS: '$DEPLOYMENT_TAGS'"
-        echo "Debug: Input validation - DEPLOYMENT_TAGS length: $(echo -n "$DEPLOYMENT_TAGS" | wc -c)"
-        echo "Debug: Input validation - DEPLOYMENT_TAGS = 'null': $([ "$DEPLOYMENT_TAGS" = "null" ] && echo "true" || echo "false")"
-        echo "Debug: Input validation - DEPLOYMENT_TAGS is empty: $([ -z "$DEPLOYMENT_TAGS" ] && echo "true" || echo "false")"
-        
-        if [ "$DEPLOYMENT_TAGS" = "null" ] || [ -z "$DEPLOYMENT_TAGS" ] || [ "$DEPLOYMENT_TAGS" = "" ]; then
-          echo "Debug: Input validation - Converting DEPLOYMENT_TAGS to empty string"
+        if [ "$DEPLOYMENT_TAGS" = "null" ] || [ -z "$DEPLOYMENT_TAGS" ]; then
           DEPLOYMENT_TAGS=""
-        else
-          echo "Debug: Input validation - Keeping DEPLOYMENT_TAGS as is"
-          echo "Debug: Input validation - DEPLOYMENT_TAGS first 100 chars: $(echo "$DEPLOYMENT_TAGS" | head -c 100)"
         fi
         
         # Display validated configuration
@@ -177,27 +168,15 @@ runs:
         DEPLOYMENT_TEMPLATE_PATH=$(cat /tmp/template-path)
         DEPLOYMENT_PARAMETERS=$(cat /tmp/deployment-parameters)
         
-        echo "Debug: Contents of /tmp/deployment-tags file:"
-        echo "Debug: File size: $(wc -c < /tmp/deployment-tags) bytes"
-        echo "Debug: File contents (first 200 chars): $(head -c 200 /tmp/deployment-tags)"
-        
         # Try to load from temp file first, but fallback to direct input if empty
         DEPLOYMENT_TAGS_FROM_FILE=$(cat /tmp/deployment-tags | tr -d '\n\r')
         
-        echo "Debug: DEPLOYMENT_TAGS from file: '$DEPLOYMENT_TAGS_FROM_FILE'"
-        echo "Debug: DEPLOYMENT_TAGS_INPUT from env: '$DEPLOYMENT_TAGS_INPUT'"
-        
         # Use direct input if file is empty
         if [ -z "$DEPLOYMENT_TAGS_FROM_FILE" ] && [ -n "$DEPLOYMENT_TAGS_INPUT" ] && [ "$DEPLOYMENT_TAGS_INPUT" != "null" ]; then
-          echo "Debug: Using DEPLOYMENT_TAGS_INPUT as fallback"
           DEPLOYMENT_TAGS="$DEPLOYMENT_TAGS_INPUT"
         else
-          echo "Debug: Using DEPLOYMENT_TAGS from file"
           DEPLOYMENT_TAGS="$DEPLOYMENT_TAGS_FROM_FILE"
         fi
-        
-        echo "Debug: Final DEPLOYMENT_TAGS: '$DEPLOYMENT_TAGS'"
-        echo "Debug: Final DEPLOYMENT_TAGS length: $(echo -n "$DEPLOYMENT_TAGS" | wc -c)"
         
         PARAMETER_OVERRIDES=""
         
@@ -304,12 +283,6 @@ runs:
         
         # Process CloudFormation tags
         TAG_OVERRIDES=""
-        
-        echo "Debug: Checking tag conditions..."
-        echo "Debug: DEPLOYMENT_TAGS is non-empty: $([ -n "$DEPLOYMENT_TAGS" ] && echo "true" || echo "false")"
-        echo "Debug: DEPLOYMENT_TAGS != '': $([ "$DEPLOYMENT_TAGS" != "" ] && echo "true" || echo "false")"
-        echo "Debug: DEPLOYMENT_TAGS != 'null': $([ "$DEPLOYMENT_TAGS" != "null" ] && echo "true" || echo "false")"
-        echo "Debug: DEPLOYMENT_TAGS != '\"null\"': $([ "$DEPLOYMENT_TAGS" != "\"null\"" ] && echo "true" || echo "false")"
         
         if [ -n "$DEPLOYMENT_TAGS" ] && [ "$DEPLOYMENT_TAGS" != "" ] && [ "$DEPLOYMENT_TAGS" != "null" ] && [ "$DEPLOYMENT_TAGS" != "\"null\"" ]; then
           echo "Processing deployment tags..."

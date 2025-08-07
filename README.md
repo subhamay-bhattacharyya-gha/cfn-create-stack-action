@@ -9,11 +9,12 @@ A reusable GitHub Action that automates the deployment of AWS CloudFormation sta
 - 🚀 **Easy CloudFormation Deployment**: Deploy stacks with a simple, standardized interface
 - 📊 **Real-time Monitoring**: Track deployment progress with live stack event monitoring
 - 🔧 **Flexible Parameter Support**: Accepts both simple JSON and CloudFormation native parameter formats
-- 🏷️ **Stack Tagging**: Apply tags to CloudFormation stacks for better resource management
+- 🏷️ **Smart Stack Tagging**: Apply tags with automatic value quoting for spaces and special characters
 - 🛡️ **Comprehensive Error Handling**: Clear error messages and proper exit codes for CI/CD integration
 - 🔐 **Security-First**: Automatic IAM capability handling with secure parameter processing
 - ✅ **Template Validation**: Pre-deployment template validation to catch errors early
 - 🚫 **No Rollback on Failure**: Disabled rollback allows for easier debugging of failed deployments
+- 🔄 **Robust Tag Processing**: Fallback mechanisms ensure tags are processed even with temp file issues
 - 📋 **Detailed Output**: Stack outputs and deployment summaries for troubleshooting
 
 ---
@@ -163,7 +164,7 @@ cloudformation-tags: |
   }
 ```
 
-#### CloudFormation Native Format
+#### CloudFormation Native Format (Recommended)
 ```yaml
 cloudformation-tags: |
   [
@@ -173,6 +174,8 @@ cloudformation-tags: |
     {"Key": "CostCenter", "Value": "engineering"}
   ]
 ```
+
+**Note**: Tag values containing spaces and special characters are automatically quoted for proper AWS CLI handling.
 
 ### Common Use Cases
 
@@ -532,6 +535,13 @@ The action uses `--disable-rollback` flag, which means:
 - **Debugging**: Easier to troubleshoot issues by examining the failed resources
 - **Manual Cleanup**: Failed stacks need to be manually deleted before retrying
 - **Faster Failures**: No time spent on rollback operations during failures
+
+### Tag Processing
+The action includes robust tag processing with the following features:
+- **Automatic Quoting**: Tag values with spaces are automatically quoted for AWS CLI compatibility
+- **Format Support**: Accepts both simple key-value objects and CloudFormation native array formats
+- **Fallback Mechanism**: Uses direct input if temporary file processing fails
+- **Special Character Handling**: Properly escapes quotes and special characters in tag values
 
 ---
 
