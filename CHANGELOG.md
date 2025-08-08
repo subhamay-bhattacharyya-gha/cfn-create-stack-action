@@ -1,3 +1,15 @@
+# [1.1.0](https://github.com/subhamay-bhattacharyya-gha/cfn-create-stack-action/compare/v1.0.1...v1.1.0) (2025-08-08)
+
+
+### Bug Fixes
+
+* improve timing calculation and stack events display in step summary ([dad9349](https://github.com/subhamay-bhattacharyya-gha/cfn-create-stack-action/commit/dad934998553fa658ba44a4aae441616a9f9d544))
+
+
+### Features
+
+* add GitHub Actions step summary and improve stack events display ([a8eff41](https://github.com/subhamay-bhattacharyya-gha/cfn-create-stack-action/commit/a8eff4111fb73198301a12b6053d23e51655a769))
+
 ## [1.0.1](https://github.com/subhamay-bhattacharyya-gha/cfn-create-stack-action/compare/v1.0.0...v1.0.1) (2025-08-07)
 
 
