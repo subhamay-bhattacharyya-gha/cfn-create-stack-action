@@ -456,7 +456,7 @@ runs:
         echo "Recent Stack Events:"
         aws cloudformation describe-stack-events \
           --stack-name "$DEPLOYMENT_STACK_NAME" \
-          --query "StackEvents[:10].[Timestamp,LogicalResourceId,ResourceType,ResourceStatus,ResourceStatusReason]" \
+          --query "StackEvents[:10].[Timestamp,LogicalResourceId,ResourceType,ResourceStatus,ResourceStatusReason || '-']" \
           --output table || echo "⚠️ Unable to retrieve stack events"
         
         # Display stack outputs in a clean, readable format
@@ -494,6 +494,155 @@ runs:
             exit 1
             ;;
         esac
+
+    - name: Generate GitHub Actions Step Summary
+      shell: bash
+      run: |
+        # Load deployment info from previous steps
+        DEPLOYMENT_STACK_NAME=$(cat /tmp/stack-name)
+        DEPLOYMENT_TEMPLATE_PATH=$(cat /tmp/template-path)
+        PARAMETER_OVERRIDES=$(cat /tmp/parameter-overrides)
+        TAG_OVERRIDES=$(cat /tmp/tag-overrides | tr -d '\n\r')
+        DEPLOY_EXIT_CODE=$(cat /tmp/deploy-exit-code)
+        
+        # Get stack information
+        STACK_STATUS=$(aws cloudformation describe-stacks --stack-name "$DEPLOYMENT_STACK_NAME" --query "Stacks[0].StackStatus" --output text 2>/dev/null || echo "UNKNOWN")
+        
+        # Get stack events for timing calculation - use simpler approach
+        echo "Retrieving stack events for timing calculation..."
+        
+        # Get the first CREATE_IN_PROGRESS or UPDATE_IN_PROGRESS event for the stack (start time)
+        START_EVENT=$(aws cloudformation describe-stack-events \
+          --stack-name "$DEPLOYMENT_STACK_NAME" \
+          --query "StackEvents[?ResourceType=='AWS::CloudFormation::Stack' && (ResourceStatus=='CREATE_IN_PROGRESS' || ResourceStatus=='UPDATE_IN_PROGRESS')] | [-1]" \
+          --output json 2>/dev/null)
+        
+        # Get the most recent CREATE_COMPLETE, UPDATE_COMPLETE, or final status event for the stack (end time)
+        END_EVENT=$(aws cloudformation describe-stack-events \
+          --stack-name "$DEPLOYMENT_STACK_NAME" \
+          --query "StackEvents[?ResourceType=='AWS::CloudFormation::Stack' && (ResourceStatus=='CREATE_COMPLETE' || ResourceStatus=='UPDATE_COMPLETE' || ResourceStatus=='CREATE_FAILED' || ResourceStatus=='UPDATE_FAILED')] | [0]" \
+          --output json 2>/dev/null)
+        
+        # Extract timestamps using jq
+        if [ "$START_EVENT" != "null" ] && [ "$START_EVENT" != "" ]; then
+          START_TIMESTAMP=$(echo "$START_EVENT" | jq -r '.Timestamp // empty' 2>/dev/null)
+        else
+          START_TIMESTAMP=""
+        fi
+        
+        if [ "$END_EVENT" != "null" ] && [ "$END_EVENT" != "" ]; then
+          END_TIMESTAMP=$(echo "$END_EVENT" | jq -r '.Timestamp // empty' 2>/dev/null)
+        else
+          END_TIMESTAMP=""
+        fi
+        
+        # Calculate duration and format timestamps
+        if [ -n "$START_TIMESTAMP" ] && [ -n "$END_TIMESTAMP" ]; then
+          # Convert ISO timestamps to epoch (works on both Linux and macOS)
+          if command -v gdate >/dev/null 2>&1; then
+            # macOS with GNU coreutils
+            START_EPOCH=$(gdate -d "$START_TIMESTAMP" +%s 2>/dev/null)
+            END_EPOCH=$(gdate -d "$END_TIMESTAMP" +%s 2>/dev/null)
+            FORMATTED_START_TIME=$(gdate -d "$START_TIMESTAMP" -u +"%Y-%m-%d %H:%M:%S UTC" 2>/dev/null)
+            FORMATTED_END_TIME=$(gdate -d "$END_TIMESTAMP" -u +"%Y-%m-%d %H:%M:%S UTC" 2>/dev/null)
+          else
+            # Linux or macOS with BSD date
+            START_EPOCH=$(date -j -f "%Y-%m-%dT%H:%M:%S" "${START_TIMESTAMP%.*}" +%s 2>/dev/null || date -d "$START_TIMESTAMP" +%s 2>/dev/null)
+            END_EPOCH=$(date -j -f "%Y-%m-%dT%H:%M:%S" "${END_TIMESTAMP%.*}" +%s 2>/dev/null || date -d "$END_TIMESTAMP" +%s 2>/dev/null)
+            FORMATTED_START_TIME=$(date -j -f "%Y-%m-%dT%H:%M:%S" "${START_TIMESTAMP%.*}" -u +"%Y-%m-%d %H:%M:%S UTC" 2>/dev/null || date -d "$START_TIMESTAMP" -u +"%Y-%m-%d %H:%M:%S UTC" 2>/dev/null)
+            FORMATTED_END_TIME=$(date -j -f "%Y-%m-%dT%H:%M:%S" "${END_TIMESTAMP%.*}" -u +"%Y-%m-%d %H:%M:%S UTC" 2>/dev/null || date -d "$END_TIMESTAMP" -u +"%Y-%m-%d %H:%M:%S UTC" 2>/dev/null)
+          fi
+          
+          # Calculate duration if we have valid epochs
+          if [ -n "$START_EPOCH" ] && [ -n "$END_EPOCH" ] && [ "$START_EPOCH" -gt 0 ] && [ "$END_EPOCH" -gt 0 ]; then
+            DURATION_SECONDS=$((END_EPOCH - START_EPOCH))
+            
+            # Format duration
+            if [ $DURATION_SECONDS -lt 60 ]; then
+              DURATION="${DURATION_SECONDS}s"
+            elif [ $DURATION_SECONDS -lt 3600 ]; then
+              DURATION_MINUTES=$((DURATION_SECONDS / 60))
+              DURATION_REMAINING=$((DURATION_SECONDS % 60))
+              DURATION="${DURATION_MINUTES}m ${DURATION_REMAINING}s"
+            else
+              DURATION_HOURS=$((DURATION_SECONDS / 3600))
+              DURATION_REMAINING=$((DURATION_SECONDS % 3600))
+              DURATION_MINUTES=$((DURATION_REMAINING / 60))
+              DURATION_SECONDS_FINAL=$((DURATION_REMAINING % 60))
+              DURATION="${DURATION_HOURS}h ${DURATION_MINUTES}m ${DURATION_SECONDS_FINAL}s"
+            fi
+          else
+            DURATION="Unknown"
+            FORMATTED_START_TIME="Unknown"
+            FORMATTED_END_TIME="Unknown"
+          fi
+        else
+          DURATION="Unknown"
+          FORMATTED_START_TIME="Unknown"
+          FORMATTED_END_TIME="Unknown"
+        fi
+        
+        # Fallback: if we still don't have timing info, try to get basic stack info
+        if [ "$FORMATTED_START_TIME" = "Unknown" ]; then
+          STACK_CREATION_TIME=$(aws cloudformation describe-stacks --stack-name "$DEPLOYMENT_STACK_NAME" --query "Stacks[0].CreationTime" --output text 2>/dev/null)
+          if [ -n "$STACK_CREATION_TIME" ] && [ "$STACK_CREATION_TIME" != "None" ]; then
+            if command -v gdate >/dev/null 2>&1; then
+              FORMATTED_START_TIME=$(gdate -d "$STACK_CREATION_TIME" -u +"%Y-%m-%d %H:%M:%S UTC" 2>/dev/null || echo "Unknown")
+            else
+              FORMATTED_START_TIME=$(date -j -f "%Y-%m-%dT%H:%M:%S" "${STACK_CREATION_TIME%.*}" -u +"%Y-%m-%d %H:%M:%S UTC" 2>/dev/null || date -d "$STACK_CREATION_TIME" -u +"%Y-%m-%d %H:%M:%S UTC" 2>/dev/null || echo "Unknown")
+            fi
+          fi
+        fi
+        
+        if [ "$FORMATTED_END_TIME" = "Unknown" ]; then
+          FORMATTED_END_TIME=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
+        fi
+        
+        # Determine success/failure status
+        if [ $DEPLOY_EXIT_CODE -eq 0 ]; then
+          case "$STACK_STATUS" in
+            "CREATE_COMPLETE"|"UPDATE_COMPLETE"|"UPDATE_COMPLETE_CLEANUP_IN_PROGRESS")
+              OPERATION_RESULT="✅ success"
+              SUMMARY_STATUS="✅ **Stack creation success**"
+              RESULT_MESSAGE="The CloudFormation stack has been successfully created."
+              ;;
+            *)
+              OPERATION_RESULT="⚠️ warning"
+              SUMMARY_STATUS="⚠️ **Stack creation completed with warnings**"
+              RESULT_MESSAGE="The CloudFormation stack deployment completed but is in state: $STACK_STATUS"
+              ;;
+          esac
+        else
+          OPERATION_RESULT="❌ failed"
+          SUMMARY_STATUS="❌ **Stack creation failed**"
+          RESULT_MESSAGE="The CloudFormation stack deployment failed with exit code: $DEPLOY_EXIT_CODE"
+        fi
+        
+        # Generate the GitHub Actions Step Summary
+        cat >> $GITHUB_STEP_SUMMARY << EOF
+        # CloudFormation Stack Creation Report
+        
+        ## Summary
+        $SUMMARY_STATUS
+        
+        ## Details
+        | Property | Value |
+        |----------|-------|
+        | Stack Name | \`$DEPLOYMENT_STACK_NAME\` |
+        | Final Status | \`$STACK_STATUS\` |
+        | Operation Result | $OPERATION_RESULT |
+        | Duration | $DURATION |
+        
+        ## Timing Information
+        - **Start Time:** $FORMATTED_START_TIME
+        - **End Time:** $FORMATTED_END_TIME
+        - **Total Duration:** $DURATION
+        
+        ## Result
+        $RESULT_MESSAGE
+        EOF
+        
+        echo "✅ GitHub Actions Step Summary generated successfully"
 
     - name: Display Final Results and Stack Information
       shell: bash

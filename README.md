@@ -15,6 +15,7 @@ A reusable GitHub Action that automates the deployment of AWS CloudFormation sta
 - ✅ **Template Validation**: Pre-deployment template validation to catch errors early
 - 🚫 **No Rollback on Failure**: Disabled rollback allows for easier debugging of failed deployments
 - 🔄 **Robust Tag Processing**: Fallback mechanisms ensure tags are processed even with temp file issues
+- 📊 **GitHub Actions Step Summary**: Automatic generation of deployment summary in GitHub Actions UI
 - 📋 **Detailed Output**: Stack outputs and deployment summaries for troubleshooting
 
 ---
@@ -432,6 +433,57 @@ Stack Outputs:
 |  BucketName         |  my-app-bucket-abc123           |  Name of the created S3 bucket  |
 |  BucketArn          |  arn:aws:s3:::my-app-bucket-abc123 |  ARN of the created S3 bucket   |
 ```
+
+---
+
+## GitHub Actions Step Summary
+
+The action automatically generates a comprehensive step summary that appears in the GitHub Actions UI, providing a quick overview of the deployment without needing to dig through logs.
+
+### Summary Format
+
+The step summary includes:
+
+```markdown
+# CloudFormation Stack Creation Report
+
+## Summary
+✅ **Stack creation success**
+
+## Details
+| Property | Value |
+|----------|-------|
+| Stack Name | `my-application-stack` |
+| Final Status | `CREATE_COMPLETE` |
+| Operation Result | ✅ success |
+| Duration | 45s |
+
+## Timing Information
+- **Start Time:** 2025-08-08 18:52:13 UTC
+- **End Time:** 2025-08-08 18:52:58 UTC
+- **Total Duration:** 45s
+
+## Result
+The CloudFormation stack has been successfully created.
+```
+
+### Summary Features
+
+- **Visual Status Indicators**: Clear success/failure indicators with emojis
+- **Deployment Details**: Stack name, final status, and operation result
+- **Accurate Timing**: Real deployment start and end times from CloudFormation events
+- **Duration Calculation**: Precise duration based on actual stack events
+- **Result Summary**: Clear description of the deployment outcome
+
+### Status Indicators
+
+| Status | Indicator | Description |
+|--------|-----------|-------------|
+| Success | ✅ success | Stack created/updated successfully |
+| Warning | ⚠️ warning | Stack completed but in unexpected state |
+| Failed | ❌ failed | Stack deployment failed |
+
+The step summary is automatically generated for every deployment and provides immediate visibility into the deployment status directly in the GitHub Actions interface.
 
 ---
 
